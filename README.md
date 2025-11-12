@@ -1,6 +1,6 @@
-# SmartBase
+# DeepBase
 
-**SmartBase** è un tool a riga di comando che analizza una directory di progetto, estrae la struttura delle cartelle e il contenuto di tutti i file di codice significativi, e li consolida in un unico file di testo/markdown.
+**DeepBase** è un tool a riga di comando che analizza una directory di progetto, estrae la struttura delle cartelle e il contenuto di tutti i file di codice significativi, e li consolida in un unico file di testo/markdown.
 
 Questo "contesto" unificato è perfetto per essere fornito a un Large Language Model (LLM) per consentirgli di comprendere a fondo l'intero codebase.
 
@@ -14,22 +14,22 @@ Questo "contesto" unificato è perfetto per essere fornito a un Large Language M
 
 ## Installazione
 
-Puoi installare SmartBase direttamente da PyPI:
+Puoi installare DeepBase direttamente da PyPI:
 
 ```sh
-pip install smartbase
+pip install DeepBase
 ```
 
 ## Come Usarlo
 
-Una volta installato, avrai a disposizione il comando `smartbase` nel tuo terminale.
+Una volta installato, avrai a disposizione il comando `DeepBase` nel tuo terminale.
 
 **Uso di base:**
 
 Naviga nella cartella del tuo progetto (o in una cartella padre) ed esegui:
 
 ```sh
-smartbase /percorso/del/tuo/progetto
+DeepBase /percorso/del/tuo/progetto
 ```
 
 Questo comando creerà un file chiamato `llm_context.md` nella directory corrente.
@@ -39,7 +39,7 @@ Questo comando creerà un file chiamato `llm_context.md` nella directory corrent
 Usa l'opzione `-o` o `--output` per definire un nome diverso per il file di contesto.
 
 ```sh
-smartbase /percorso/del/tuo/progetto -o contesto_progetto.txt
+DeepBase /percorso/del/tuo/progetto -o contesto_progetto.txt
 ```
 
 ## Licenza

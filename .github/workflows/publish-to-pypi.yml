@@ -1,0 +1,47 @@
+# .github/workflows/publish-to-pypi.yml
+
+# Nome del workflow che apparirà nella tab "Actions" di GitHub
+name: Publish Python Package to PyPI
+
+# Trigger: questo workflow si avvia solo quando viene creata una nuova "release"
+on:
+  release:
+    types: [published]
+
+# Definisce i permessi necessari per il job
+permissions:
+  contents: read
+
+# Definisce i job da eseguire
+jobs:
+  deploy:
+    # Esegui questo job su una macchina virtuale Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Fa il checkout del codice del tuo repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Imposta l'ambiente Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11' # Usa una versione di Python compatibile
+
+    # 3. Installa le dipendenze per il build
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    # 4. Costruisce il pacchetto (crea i file .whl e .tar.gz nella cartella /dist)
+    - name: Build package
+      run: python -m build
+
+    # 5. Pubblica il pacchetto su PyPI
+    - name: Publish package to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        # Usa il token API che abbiamo memorizzato nei segreti di GitHub
+        password: ${{ secrets.PYPI_API_TOKEN }}

@@ -5,12 +5,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
+# Il nome che verrà usato su PyPI
 name = "deepbase"
-version = "0.1.0"
+version = "1.0.0"
 authors = [
   { name="Tuo Nome", email="tua@email.com" },
 ]
-description = "Un tool per generare un contesto di progetto completo per gli LLM."
+description = "A simple tool to manage and utilize code context with LLMs."
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8"
@@ -21,12 +22,12 @@ classifiers = [
     "Topic :: Software Development",
     "Topic :: Utilities",
 ]
-keywords = ["llm", "context", "developer-tool", "ai", "code-analysis"]
+keywords = ["llm", "context", "developer-tool", "ai", "code-analysis", "deepbase"]
 
 [project.urls]
-"Homepage" = "https://github.com/tuo-username/deepbase" # Sostituisci con il tuo URL
-"Bug Tracker" = "https://github.com/tuo-username/deepbase/issues" # Sostituisci
+"Homepage" = "https://github.com/tuo-username/deepbase"
+"Bug Tracker" = "https://github.com/tuo-username/deepbase/issues"
 
-# Qui definiamo il comando da terminale
+# Aggiorna il percorso dello script per riflettere la nuova struttura
 [project.scripts]
 deepbase = "deepbase.main:cli"
