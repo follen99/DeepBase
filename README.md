@@ -1,47 +1,68 @@
 # DeepBase
 
-**DeepBase** è un tool a riga di comando che analizza una directory di progetto, estrae la struttura delle cartelle e il contenuto di tutti i file di codice significativi, e li consolida in un unico file di testo/markdown.
+**DeepBase** is a command-line tool that analyzes a project directory, extracts the folder structure and the content of all significant code files, and consolidates them into a single text/markdown file.
 
-Questo "contesto" unificato è perfetto per essere fornito a un Large Language Model (LLM) per consentirgli di comprendere a fondo l'intero codebase.
+This unified "context" is perfect for providing to a Large Language Model (LLM) to enable it to deeply understand the entire codebase.
 
-## Caratteristiche
+## Features
 
-- **Struttura del Progetto**: Genera una visualizzazione ad albero della struttura di cartelle e file.
-- **Filtro Intelligente**: Ignora automaticamente le directory comuni non necessarie (`.git`, `venv`, `node_modules`, etc.).
-- **Selezione per Estensione**: Include solo i file con estensioni di codice o configurazione rilevanti (`.py`, `.js`, `.md`, `Dockerfile`, etc.).
-- **Output Unificato**: Combina tutto in un unico file, facile da copiare e incollare.
-- **Pronto per PyPI**: Facile da installare tramite `pip`.
+- **Project Structure**: Generates a tree view of the folder and file structure.
+- **Smart Filtering**: Automatically ignores common unnecessary directories (e.g., `.git`, `venv`, `node_modules`).
+- **Configurable**: Customize ignored directories and included extensions via a `.deepbase.toml` file.
+- **Extension Selection**: Includes only files with relevant code or configuration extensions.
+- **Unified Output**: Combines everything into a single file, easy to copy and paste.
+- **PyPI Ready**: Easy to install via `pip`.
 
-## Installazione
+## Installation
 
-Puoi installare DeepBase direttamente da PyPI:
-
-```sh
-pip install DeepBase
-```
-
-## Come Usarlo
-
-Una volta installato, avrai a disposizione il comando `DeepBase` nel tuo terminale.
-
-**Uso di base:**
-
-Naviga nella cartella del tuo progetto (o in una cartella padre) ed esegui:
+You can install DeepBase directly from PyPI:
 
 ```sh
-DeepBase /percorso/del/tuo/progetto
+pip install deepbase
+
 ```
 
-Questo comando creerà un file chiamato `llm_context.md` nella directory corrente.
+## How to Use
 
-**Specificare un file di output:**
+Once installed, you will have the `deepbase` command available in your terminal.
 
-Usa l'opzione `-o` o `--output` per definire un nome diverso per il file di contesto.
+**Basic Usage:**
+
+Navigate to your project folder (or a parent folder) and run:
 
 ```sh
-DeepBase /percorso/del/tuo/progetto -o contesto_progetto.txt
+deepbase .
+```
+*The dot `.` indicates the current directory.*
+
+This command will create a file called `llm_context.md` in the current directory.
+
+**Specify Directory and Output File:**
+
+```sh
+deepbase /path/to/your/project -o project_context.txt
 ```
 
-## Licenza
+### Advanced Configuration
 
-Questo progetto è rilasciato sotto la licenza MIT. Vedi il file `LICENSE` per i dettagli.
+You can customize DeepBase's behavior by creating a `.deepbase.toml` file in the root of the project you are analyzing.
+
+**Example `.deepbase.toml`:**
+```toml
+# Add more directories to ignore.
+# These will be added to the default ones.
+ignore_dirs = [
+  "my_assets_folder",
+  "experimental"
+]
+
+# Add more extensions or filenames to include.
+significant_extensions = [
+  ".cfg",
+  "Makefile"
+]
+```
+
+## License
+
+This project is released under the GPL 3 license. See the `LICENSE` file for details.

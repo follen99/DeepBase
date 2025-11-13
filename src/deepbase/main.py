@@ -1,135 +1,180 @@
 # src/deepbase/main.py
 
 import os
-import argparse
+import typer
+from rich.console import Console
+from rich.progress import Progress
+import tomli  # To read .toml files
+import chardet # To detect file encoding
+from typing import List, Dict, Any, Set
 
-# --- CONFIGURAZIONE DEI FILTRI ---
+# --- DEFAULT CONFIGURATION ---
 
-# Directory da ignorare durante la scansione
-IGNORED_DIRS = {
-    "__pycache__", ".git", ".idea", ".vscode", "venv", ".venv", "env",
-    ".env", "node_modules", "build", "dist", "target", "out", "bin",
-    "obj", "logs", "tmp", "eggs", ".eggs", ".pytest_cache", ".tox",
+DEFAULT_CONFIG = {
+    "ignore_dirs": {
+        "__pycache__", ".git", ".idea", ".vscode", "venv", ".venv", "env",
+        ".env", "node_modules", "build", "dist", "target", "out", "bin",
+        "obj", "logs", "tmp", "eggs", ".eggs", ".pytest_cache", ".tox",
+        "site",
+    },
+    "significant_extensions": {
+        ".py", ".java", ".js", ".ts", ".html", ".css", ".scss", ".sql",
+        ".md", ".json", ".xml", ".yml", ".yaml", ".sh", ".bat", "Dockerfile",
+        ".dockerignore", ".gitignore", "requirements.txt", "pom.xml", "gradlew",
+        "pyproject.toml", "setup.py",
+    }
 }
 
-# Estensioni e nomi di file significativi da includere
-SIGNIFICANT_EXTENSIONS = {
-    ".py", ".java", ".js", ".ts", ".html", ".css", ".scss", ".sql",
-    ".md", ".json", ".xml", ".yml", ".yaml", ".sh", ".bat", "Dockerfile",
-    ".dockerignore", ".gitignore", "requirements.txt", "pom.xml", "gradlew",
-    "pyproject.toml", "setup.py",
-}
+# --- TOOL INITIALIZATION ---
 
-def is_significant_file(file_path):
-    """Verifica se un file è significativo."""
+app = typer.Typer(
+    name="deepbase",
+    help="Creates a context document for an LLM by exploring a project directory.",
+    add_completion=False
+)
+console = Console()
+
+
+def load_config(root_dir: str) -> Dict[str, Any]:
+    """Loads the configuration from .deepbase.toml or uses the default."""
+    config_path = os.path.join(root_dir, ".deepbase.toml")
+    config = DEFAULT_CONFIG.copy()
+    
+    if os.path.exists(config_path):
+        console.print(f"[bold cyan]Found configuration file: '.deepbase.toml'[/bold cyan]")
+        try:
+            with open(config_path, "rb") as f:
+                user_config = tomli.load(f)
+            
+            # Merges user configurations with the default ones
+            config["ignore_dirs"].update(user_config.get("ignore_dirs", []))
+            config["significant_extensions"].update(user_config.get("significant_extensions", []))
+            console.print("[green]Custom configuration loaded successfully.[/green]")
+
+        except tomli.TOMLDecodeError as e:
+            console.print(f"[bold red]Error parsing .deepbase.toml:[/bold red] {e}")
+            console.print("[yellow]Using default configuration.[/yellow]")
+    
+    return config
+
+
+def is_significant_file(file_path: str, significant_extensions: Set[str]) -> bool:
+    """Checks if a file is significant based on the provided extensions."""
     file_name = os.path.basename(file_path)
-    if file_name in SIGNIFICANT_EXTENSIONS:
+    if file_name in significant_extensions:
         return True
     _, ext = os.path.splitext(file_name)
-    return ext in SIGNIFICANT_EXTENSIONS
+    return ext in significant_extensions
 
-def generate_directory_tree(root_dir):
-    """Genera una rappresentazione testuale della struttura delle cartelle."""
-    tree_str = f"Struttura del progetto in: {os.path.abspath(root_dir)}\n\n"
+
+def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
+    """Generates a textual representation of the folder structure."""
+    tree_str = f"Project structure in: {os.path.abspath(root_dir)}\n\n"
+    ignore_dirs = config["ignore_dirs"]
+    significant_exts = config["significant_extensions"]
+
     for dirpath, dirnames, filenames in os.walk(root_dir, topdown=True):
-        # Esclude le directory non significative
-        dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRS and not d.startswith('.')]
+        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
         
-        # Calcola il livello di indentazione
         level = dirpath.replace(root_dir, '').count(os.sep)
-        indent = ' ' * 4 * (level)
+        indent = ' ' * 4 * level
         
-        # Aggiunge la cartella corrente all'albero
-        tree_str += f"{indent}📂 {os.path.basename(dirpath)}/\n"
+        tree_str += f"{indent}\ud83d\udcc2 {os.path.basename(dirpath) or os.path.basename(os.path.abspath(root_dir))}/\n"
         
         sub_indent = ' ' * 4 * (level + 1)
         
-        # Aggiunge i file significativi
-        for f in filenames:
-            if is_significant_file(os.path.join(dirpath, f)):
-                tree_str += f"{sub_indent}📄 {f}\n"
+        for f in sorted(filenames):
+            if is_significant_file(os.path.join(dirpath, f), significant_exts):
+                tree_str += f"{sub_indent}\ud83d\udcc4 {f}\n"
     
     return tree_str
 
-def create_llm_context(root_dir, output_file):
-    """Crea il documento di contesto unificato per l'LLM."""
-    print(f"Avvio della scansione di '{root_dir}'...")
+
+def get_all_significant_files(root_dir: str, config: Dict[str, Any]) -> List[str]:
+    """Gets a list of all significant files to include."""
+    significant_files = []
+    ignore_dirs = config["ignore_dirs"]
+    significant_exts = config["significant_extensions"]
+
+    for dirpath, dirnames, filenames in os.walk(root_dir, topdown=True):
+        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
+        
+        for filename in sorted(filenames):
+            file_path = os.path.join(dirpath, filename)
+            if is_significant_file(file_path, significant_exts):
+                significant_files.append(file_path)
+
+    return significant_files
+
+
+@app.command()
+def create(
+    directory: str = typer.Argument(..., help="The main project directory to explore."),
+    output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file that will contain the context."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output, including ignored files.")
+):
+    """
+    Analyzes a project and creates a unified context file for an LLM.
+    """
+    if not os.path.isdir(directory):
+        console.print(f"[bold red]Error:[/bold red] The specified directory does not exist: '{directory}'")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold green]Starting scan of '{directory}'...[/bold green]")
+    
+    config = load_config(directory)
+    
     try:
-        with open(output_file, "w", encoding="utf-8") as outfile:
-            # 1. Scrive il nome del progetto
-            outfile.write(f"# Contesto del Progetto: {os.path.basename(os.path.abspath(root_dir))}\n\n")
+        with open(output, "w", encoding="utf-8") as outfile:
+            # 1. Write the header
+            outfile.write(f"# Project Context: {os.path.basename(os.path.abspath(directory))}\n\n")
             
-            # 2. Scrive la struttura delle cartelle e dei file
-            outfile.write("="*80 + "\n")
-            outfile.write("### STRUTTURA DEL PROGETTO ###\n")
-            outfile.write("="*80 + "\n\n")
-            directory_tree = generate_directory_tree(root_dir)
+            # 2. Write the structure
+            outfile.write("="*80 + "\n### PROJECT STRUCTURE ###\n" + "="*80 + "\n\n")
+            directory_tree = generate_directory_tree(directory, config)
             outfile.write(directory_tree)
             outfile.write("\n\n")
 
-            # 3. Scrive il contenuto dei file
-            outfile.write("="*80 + "\n")
-            outfile.write("### CONTENUTO DEI FILE ###\n")
-            outfile.write("="*80 + "\n\n")
+            # 3. Write the file contents
+            outfile.write("="*80 + "\n### FILE CONTENTS ###\n" + "="*80 + "\n\n")
+            
+            significant_files = get_all_significant_files(directory, config)
 
-            for dirpath, dirnames, filenames in os.walk(root_dir, topdown=True):
-                dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRS and not d.startswith('.')]
+            with Progress(console=console) as progress:
+                task = progress.add_task("[cyan]Analyzing files...", total=len(significant_files))
 
-                for filename in sorted(filenames):
-                    file_path = os.path.join(dirpath, filename)
-                    if is_significant_file(file_path):
-                        relative_path = os.path.relpath(file_path, root_dir).replace('\\', '/')
-                        print(f"  -> Includo il file: {relative_path}")
+                for file_path in significant_files:
+                    relative_path = os.path.relpath(file_path, directory).replace('\\', '/')
+                    progress.update(task, advance=1, description=f"[cyan]Analyzing: {relative_path}[/cyan]")
+
+                    outfile.write(f"--- START FILE: {relative_path} ---\n\n")
+                    try:
+                        with open(file_path, "rb") as fb:
+                            raw_data = fb.read()
                         
-                        outfile.write(f"--- INIZIO FILE: {relative_path} ---\n\n")
-                        try:
-                            with open(file_path, "r", encoding="utf-8", errors="ignore") as infile:
-                                content = infile.read()
-                                outfile.write(content)
-                        except Exception as e:
-                            outfile.write(f"!!! Errore durante la lettura del file: {e} !!!\n")
+                        # Detect encoding
+                        detection = chardet.detect(raw_data)
+                        encoding = detection['encoding'] if detection['encoding'] else 'utf-8'
                         
-                        outfile.write(f"\n\n--- FINE FILE: {relative_path} ---\n\n")
-                        outfile.write("-" * 40 + "\n\n")
+                        # Read and write the content
+                        content = raw_data.decode(encoding, errors="ignore")
+                        outfile.write(content)
 
-        print(f"\n[SUCCESS] Contesto creato con successo nel file: {output_file}")
+                    except Exception as e:
+                        outfile.write(f"!!! Error reading file: {e} !!!\n")
+                    
+                    outfile.write(f"\n\n--- END FILE: {relative_path} ---\n\n")
+                    outfile.write("-" * 40 + "\n\n")
+        
+        console.print(f"\n[bold green]\u2713 SUCCESS[/bold green]: Context successfully created in file: [cyan]'{output}'[/cyan]")
 
     except IOError as e:
-        print(f"\n[ERROR] Errore durante la scrittura del file di output: {e}")
+        console.print(f"\n[bold red]Error writing the output file:[/bold red] {e}")
+        raise typer.Exit(code=1)
     except Exception as e:
-        print(f"\n[ERROR] Si è verificato un errore inaspettato: {e}")
+        console.print(f"\n[bold red]An unexpected error occurred:[/bold red] {e}")
+        raise typer.Exit(code=1)
 
-def cli():
-    """Funzione di entry-point per la riga di comando."""
-    parser = argparse.ArgumentParser(
-        prog="deepbase",
-        description="Crea un documento di contesto per un LLM esplorando una directory di progetto.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    
-    parser.add_argument(
-        "directory",
-        help="La directory principale del progetto da esplorare."
-    )
-    
-    parser.add_argument(
-        "-o", "--output",
-        default="llm_context.md",
-        help="Il nome del file di output che conterrà il contesto.\n(default: llm_context.md)"
-    )
-    
-    parser.add_argument(
-        "-v", "--version",
-        action="version",
-        version="%(prog)s 0.1.0" # La versione sarà gestita da pyproject.toml
-    )
-    
-    args = parser.parse_args()
-
-    if not os.path.isdir(args.directory):
-        print(f"[ERROR] La directory specificata non esiste: {args.directory}")
-    else:
-        create_llm_context(args.directory, args.output)
 
 if __name__ == "__main__":
-    cli()
+    app()

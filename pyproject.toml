@@ -5,13 +5,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Il nome che verrà usato su PyPI
 name = "deepbase"
-version = "1.0.0"
+# Increment the version to reflect changes
+version = "1.2.0" 
 authors = [
-  { name="Tuo Nome", email="tua@email.com" },
+  { name="Your Name", email="your@email.com" },
 ]
-description = "A simple tool to manage and utilize code context with LLMs."
+description = "A CLI utility to consolidate project context for LLMs."
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8"
@@ -24,10 +24,24 @@ classifiers = [
 ]
 keywords = ["llm", "context", "developer-tool", "ai", "code-analysis", "deepbase"]
 
-[project.urls]
-"Homepage" = "https://github.com/tuo-username/deepbase"
-"Bug Tracker" = "https://github.com/tuo-username/deepbase/issues"
+# Main project dependencies
+dependencies = [
+    "typer[all]",   # For a modern and robust CLI
+    "rich",         # For colored output and progress bars
+    "tomli",        # To read .toml configuration files
+    "chardet"       # To reliably detect file encoding
+]
 
-# Aggiorna il percorso dello script per riflettere la nuova struttura
+[project.urls]
+"Homepage" = "https://github.com/follen99/deepbase"
+"Bug Tracker" = "https://github.com/follen99/deepbase/issues"
+
+# Update the script to point to the Typer app object
 [project.scripts]
-deepbase = "deepbase.main:cli"
+deepbase = "deepbase.main:app"
+
+# Optional dependencies for development (e.g., testing)
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]

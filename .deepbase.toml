@@ -1,0 +1,15 @@
+# Esempio di file di configurazione per DeepBase.
+# Salva questo file come .deepbase.toml nella root del tuo progetto.
+
+# Aggiungi altre directory da ignorare.
+# Queste si sommeranno a quelle di default.
+# ignore_dirs = [
+#   "my_secret_folder",
+#   "temp_data"
+# ]
+
+# Aggiungi altre estensioni o nomi di file da includere.
+# significant_extensions = [
+#   ".env.example",
+#   ".customext"
+# ]
