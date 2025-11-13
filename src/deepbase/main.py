@@ -4,8 +4,8 @@ import os
 import typer
 from rich.console import Console
 from rich.progress import Progress
-import tomli  # To read .toml files
-import chardet # To detect file encoding
+import tomli
+import chardet
 from typing import List, Dict, Any, Set
 
 # --- DEFAULT CONFIGURATION ---
@@ -29,14 +29,14 @@ DEFAULT_CONFIG = {
 
 app = typer.Typer(
     name="deepbase",
-    help="Creates a context document for an LLM by exploring a project directory.",
+    help="Analyzes a project directory and creates a unified context document for an LLM.",
     add_completion=False
 )
 console = Console()
 
 
 def load_config(root_dir: str) -> Dict[str, Any]:
-    """Loads the configuration from .deepbase.toml or uses the default."""
+    """Loads configuration from .deepbase.toml or uses the default."""
     config_path = os.path.join(root_dir, ".deepbase.toml")
     config = DEFAULT_CONFIG.copy()
     
@@ -46,7 +46,7 @@ def load_config(root_dir: str) -> Dict[str, Any]:
             with open(config_path, "rb") as f:
                 user_config = tomli.load(f)
             
-            # Merges user configurations with the default ones
+            # Merge user config with defaults
             config["ignore_dirs"].update(user_config.get("ignore_dirs", []))
             config["significant_extensions"].update(user_config.get("significant_extensions", []))
             console.print("[green]Custom configuration loaded successfully.[/green]")
@@ -68,8 +68,8 @@ def is_significant_file(file_path: str, significant_extensions: Set[str]) -> boo
 
 
 def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
-    """Generates a textual representation of the folder structure."""
-    tree_str = f"Project structure in: {os.path.abspath(root_dir)}\n\n"
+    """Generates a text representation of the folder structure."""
+    tree_str = f"Project Structure in: {os.path.abspath(root_dir)}\n\n"
     ignore_dirs = config["ignore_dirs"]
     significant_exts = config["significant_extensions"]
 
@@ -79,19 +79,19 @@ def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
         level = dirpath.replace(root_dir, '').count(os.sep)
         indent = ' ' * 4 * level
         
-        tree_str += f"{indent}\ud83d\udcc2 {os.path.basename(dirpath) or os.path.basename(os.path.abspath(root_dir))}/\n"
+        tree_str += f"{indent}📂 {os.path.basename(dirpath) or os.path.basename(os.path.abspath(root_dir))}/\n"
         
         sub_indent = ' ' * 4 * (level + 1)
         
         for f in sorted(filenames):
             if is_significant_file(os.path.join(dirpath, f), significant_exts):
-                tree_str += f"{sub_indent}\ud83d\udcc4 {f}\n"
+                tree_str += f"{sub_indent}📄 {f}\n"
     
     return tree_str
 
 
 def get_all_significant_files(root_dir: str, config: Dict[str, Any]) -> List[str]:
-    """Gets a list of all significant files to include."""
+    """Gets a list of all significant files to be included."""
     significant_files = []
     ignore_dirs = config["ignore_dirs"]
     significant_exts = config["significant_extensions"]
@@ -109,7 +109,7 @@ def get_all_significant_files(root_dir: str, config: Dict[str, Any]) -> List[str
 
 @app.command()
 def create(
-    directory: str = typer.Argument(..., help="The main project directory to explore."),
+    directory: str = typer.Argument(..., help="The root directory of the project to scan."),
     output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file that will contain the context."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output, including ignored files.")
 ):
@@ -147,7 +147,7 @@ def create(
                     relative_path = os.path.relpath(file_path, directory).replace('\\', '/')
                     progress.update(task, advance=1, description=f"[cyan]Analyzing: {relative_path}[/cyan]")
 
-                    outfile.write(f"--- START FILE: {relative_path} ---\n\n")
+                    outfile.write(f"--- START OF FILE: {relative_path} ---\n\n")
                     try:
                         with open(file_path, "rb") as fb:
                             raw_data = fb.read()
@@ -156,20 +156,20 @@ def create(
                         detection = chardet.detect(raw_data)
                         encoding = detection['encoding'] if detection['encoding'] else 'utf-8'
                         
-                        # Read and write the content
-                        content = raw_data.decode(encoding, errors="ignore")
+                        # Read and write content with robust error handling
+                        content = raw_data.decode(encoding, errors="replace")
                         outfile.write(content)
 
                     except Exception as e:
-                        outfile.write(f"!!! Error reading file: {e} !!!\n")
+                        outfile.write(f"!!! Error while reading file: {e} !!!\n")
                     
-                    outfile.write(f"\n\n--- END FILE: {relative_path} ---\n\n")
+                    outfile.write(f"\n\n--- END OF FILE: {relative_path} ---\n\n")
                     outfile.write("-" * 40 + "\n\n")
         
-        console.print(f"\n[bold green]\u2713 SUCCESS[/bold green]: Context successfully created in file: [cyan]'{output}'[/cyan]")
+        console.print(f"\n[bold green]✓ SUCCESS[/bold green]: Context successfully created in file: [cyan]'{output}'[/cyan]")
 
     except IOError as e:
-        console.print(f"\n[bold red]Error writing the output file:[/bold red] {e}")
+        console.print(f"\n[bold red]Error writing to output file:[/bold red] {e}")
         raise typer.Exit(code=1)
     except Exception as e:
         console.print(f"\n[bold red]An unexpected error occurred:[/bold red] {e}")

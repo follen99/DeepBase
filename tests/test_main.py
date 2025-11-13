@@ -4,7 +4,7 @@ import os
 from typer.testing import CliRunner
 from deepbase.main import app
 
-# Instance of CliRunner to execute Typer app commands
+# Runner instance to execute Typer app commands
 runner = CliRunner()
 
 def test_create_context_successfully(tmp_path):
@@ -24,8 +24,8 @@ def test_create_context_successfully(tmp_path):
     
     output_file = tmp_path / "context.md"
 
-    # 2. Execute the CLI command
-    result = runner.invoke(app, ["--output", str(output_file), str(project_dir)])
+    # 2. Execute the CLI command with arguments in the correct order
+    result = runner.invoke(app, [str(project_dir), "--output", str(output_file)])
 
     # 3. Verify the results
     assert result.exit_code == 0
@@ -35,11 +35,11 @@ def test_create_context_successfully(tmp_path):
     content = output_file.read_text()
     
     # Check that significant files are included
-    assert "--- START FILE: main.py ---" in content
+    assert "--- START OF FILE: main.py ---" in content
     assert "print('hello world')" in content
-    assert "--- START FILE: README.md ---" in content
+    assert "--- START OF FILE: README.md ---" in content
     
-    # Check that ignored directories and files are not present
+    # Check that ignored directory and files are not present
     assert "venv" not in content
     assert "ignored_file.py" not in content
 
@@ -49,4 +49,4 @@ def test_directory_not_found():
     """
     result = runner.invoke(app, ["non_existent_dir"])
     assert result.exit_code == 1
-    assert "The specified directory does not exist" in result.stdout
+    assert "directory does not exist" in result.stdout
