@@ -1,0 +1,39 @@
+site_name: DeepBase
+site_description: A CLI tool to consolidate project context for LLMs.
+site_url: https://follen99.github.io/deepbase/  # Aggiorna con il tuo username
+repo_url: https://github.com/follen99/deepbase
+repo_name: follen99/deepbase
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: teal
+      accent: lime
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]  # Dice al plugin dove trovare il codice sorgente
+
+nav:
+  - Home: index.md
+  - API Reference: reference.md
