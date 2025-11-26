@@ -1,3 +1,35 @@
+# File Structure Analysis: README.md
+
+================================================================================
+### DOCUMENT STRUCTURE (Outline) ###
+================================================================================
+
+# DeepBase
+## Features
+## Installation
+## How to Use
+### Advanced Configuration
+# Add more directories to ignore.
+# These will be added to the default ones.
+# Add more extensions or filenames to include.
+### Single File Analysis (New!)
+# Generates "llm_context.md" containing only the headers tree.
+# Generates "llm_context.md" containing the outline followed by the full text.
+## Development Workflow
+### 1. Local Setup & Testing
+# Install in editable mode
+# Run tests
+# Test the tool locally without reinstalling
+# You can now use the 'deepbase' command directly and it reflects your code changes immediately.
+### 2. Release Process
+## License
+
+================================================================================
+### FILE CONTENT ###
+================================================================================
+
+--- START OF FILE: README.md ---
+
 # DeepBase
 
 **DeepBase** is a command-line tool that analyzes a project directory, extracts the folder structure and the content of all significant code files, and consolidates them into a single text/markdown file.
@@ -127,3 +159,5 @@ To create a new release (which triggers the PyPI deployment pipeline):
 ## License
 
 This project is released under the GPL 3 license. See the `LICENSE` file for details.
+
+--- END OF FILE: README.md ---
