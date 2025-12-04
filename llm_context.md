@@ -27,7 +27,7 @@ Project Structure in: /home/follen/Documents/git-local/DeepBase
         📄 reference.md
 
 
-### SEMANTIC SKELETONS (TOON)
+### FILE CONTENTS (HYBRID)
 
 > FILE: .gitignore
 __pycache__/
@@ -358,29 +358,127 @@ docs = ...
 # 3. Verify the results
 # Check that significant files are included
 # Check that ignored directory and files are not present
-> FILE: tests/test_cli.py
-F: test_cli_single_file_default(tmp_path)
-  """Testa che di default (senza -a) venga generata SOLO la struttura...."""
-F: test_cli_single_file_with_all(tmp_path)
-  """Testa che con il flag --all venga generato ANCHE il contenuto...."""
-> FILE: tests/test_parsers.py
-F: test_extract_markdown_structure_simple()
-  """Testa l'estrazione corretta di header semplici...."""
-F: test_extract_markdown_structure_no_headers()
-  """Testa un file markdown senza intestazioni...."""
-F: test_extract_markdown_structure_complex()
-  """Testa che il codice e i commenti non vengano confusi per header...."""
-F: test_dispatcher_extensions()
-  """Testa che il dispatcher scelga il parser giusto in base all'estensione...."""
+> FILE: tests/test_cli.py [FOCUSED - FULL CONTENT]
+# tests/test_cli.py
+
+import os
+from typer.testing import CliRunner
+from deepbase.main import app
+
+runner = CliRunner()
+
+# ... (gli altri test sulle directory rimangono uguali) ...
+
+def test_cli_single_file_default(tmp_path):
+    """
+    Testa che di default (senza -a) venga generata SOLO la struttura.
+    """
+    single_file = tmp_path / "README.md"
+    unique_content_string = "Questo è il contenuto univoco del file."
+    single_file.write_text(f"# Intro\n{unique_content_string}\n## Usage", encoding="utf-8")
+    
+    output_file = tmp_path / "structure_only.md"
+    
+    result = runner.invoke(app, [str(single_file), "-o", str(output_file)])
+    
+    assert result.exit_code == 0
+    content = output_file.read_text(encoding="utf-8")
+    
+    # DEVE contenere la struttura
+    assert "# Intro" in content
+    assert "## Usage" in content
+    
+    # NON DEVE contenere il corpo del testo (perché non abbiamo passato -a)
+    # Nota: la regex dei parser estrae solo le linee con #, quindi la stringa di testo puro
+    # non dovrebbe apparire nell'output se stiamo stampando solo la structure section.
+    assert unique_content_string not in content
+
+def test_cli_single_file_with_all(tmp_path):
+    """
+    Testa che con il flag --all venga generato ANCHE il contenuto.
+    """
+    single_file = tmp_path / "DOCS.md"
+    unique_content_string = "Dettagli molto importanti."
+    single_file.write_text(f"# Title\n{unique_content_string}", encoding="utf-8")
+    
+    output_file = tmp_path / "full_context.md"
+    
+    # Passiamo il flag --all
+    result = runner.invoke(app, [str(single_file), "--all", "-o", str(output_file)])
+    
+    assert result.exit_code == 0
+    content = output_file.read_text(encoding="utf-8")
+    
+    # DEVE contenere la struttura
+    assert "# Title" in content
+    
+    # DEVE contenere ANCHE il corpo del testo
+    assert "--- START OF FILE: DOCS.md ---" in content
+    assert unique_content_string in content
+> FILE: tests/test_parsers.py [FOCUSED - FULL CONTENT]
+import pytest
+from deepbase.parsers import extract_markdown_structure, get_document_structure
+
+def test_extract_markdown_structure_simple():
+    """Testa l'estrazione corretta di header semplici."""
+    content = """
+# Titolo Principale
+Testo normale che deve essere ignorato.
+
+## Sottosezione
+Altro testo.
+
+### Livello 3
+    """
+    expected = "# Titolo Principale\n## Sottosezione\n### Livello 3"
+    result = extract_markdown_structure(content)
+    assert result.strip() == expected
+
+def test_extract_markdown_structure_no_headers():
+    """Testa un file markdown senza intestazioni."""
+    content = "Solo testo semplice.\nNessun titolo qui."
+    result = extract_markdown_structure(content)
+    assert "Nessuna struttura rilevata" in result
+
+def test_extract_markdown_structure_complex():
+    """Testa che il codice e i commenti non vengano confusi per header."""
+    content = """
+# Header Reale
+    # Questo Ã¨ codice, non un header
+    ## Header Reale 2
+"""
+    result = extract_markdown_structure(content)
+    # L'header indentato (codice) non deve apparire, o deve essere gestito come testo
+    # La regex attuale richiede che # sia all'inizio della riga (con whitespace opzionali)
+    assert "# Header Reale" in result
+    assert "## Header Reale 2" in result
+    # Nota: Se la tua regex permette spazi prima del #, verifica il comportamento desiderato
+
+def test_dispatcher_extensions():
+    """Testa che il dispatcher scelga il parser giusto in base all'estensione."""
+    content = "# Test"
+    
+    # Markdown extensions
+    assert get_document_structure("file.md", content) == "# Test"
+    assert get_document_structure("file.markdown", content) == "# Test"
+    
+    # Unsupported extensions (dovrebbe ritornare None o messaggio default)
+    assert get_document_structure("file.txt", content) is None
+    assert get_document_structure("script.py", content) is None
 > FILE: src/deepbase/__init__.py
 
 > FILE: src/deepbase/main.py
 F: load_config(root_dir)
+  """Loads configuration from .deepbase.toml if available...."""
 F: is_significant_file(file_path, significant_extensions) -> bool
 F: generate_directory_tree(root_dir, config) -> str
 F: get_all_significant_files(root_dir, config)
 F: read_file_content(file_path) -> str
-F: create(target, output, verbose, include_all, toon_mode)
+F: matches_focus(file_path, root_dir, focus_patterns) -> bool
+  """Check if the file path matches any of the focus patterns...."""
+F: load_focus_patterns_from_file(file_path)
+  """Legge pattern da un file di testo (uno per riga), ignorando # commenti...."""
+F: create(target, output, verbose, include_all, toon_mode, focus, focus_file)
   """Analyzes a directory OR a single file...."""
 > FILE: src/deepbase/parsers.py
 F: extract_markdown_structure(content) -> str

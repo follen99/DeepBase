@@ -8,8 +8,9 @@ This unified "context" is perfect for providing to a Large Language Model (LLM) 
 
 - **Project Structure**: Generates a tree view of the folder and file structure.
 - **Smart Filtering**: Automatically ignores common unnecessary directories (e.g., `.git`, `venv`, `node_modules`).
+- **Token Optimization (TOON)**: Capable of generating "Semantic Skeletons" (class definitions, function signatures, docstrings) instead of full code to save up to 90% of tokens.
+- **Hybrid Focus Mode**: Combine lightweight context for the whole project with full content only for specific files or folders.
 - **Configurable**: Customize ignored directories and included extensions via a `.deepbase.toml` file.
-- **Extension Selection**: Includes only files with relevant code or configuration extensions.
 - **Unified Output**: Combines everything into a single file, easy to copy and paste.
 - **PyPI Ready**: Easy to install via `pip`.
 
@@ -19,79 +20,96 @@ You can install DeepBase directly from PyPI:
 
 ```sh
 pip install deepbase
-
 ```
 
 ## How to Use
 
-Once installed, you will have the `deepbase` command available in your terminal.
+Once installed, use the `deepbase` command followed by the target (directory or file).
 
-**Basic Usage:**
+### 1. Basic Project Analysis
 
-Navigate to your project folder (or a parent folder) and run:
+**Structure Only (Default)**
+Quickly generate a tree view of your project folders and files. No code content is included.
 
 ```sh
 deepbase .
 ```
-*The dot `.` indicates the current directory.*
 
-This command will create a file called `llm_context.md` in the current directory.
-
-**Specify Directory and Output File:**
+**Include All Content**
+To generate the full context including the code of all significant files, use the `--all` (or `-a`) flag.
+*Warning: use this only for small projects.*
 
 ```sh
-deepbase /path/to/your/project -o project_context.txt
+deepbase . --all
 ```
 
-### Advanced Configuration
+### 2. Smart Token Optimization (TOON)
 
-You can customize DeepBase's behavior by creating a `.deepbase.toml` file in the root of the project you are analyzing.
+For large projects, sending all code to an LLM is expensive and inefficient. **TOON (Token Oriented Object Notation)** extracts only the semantic "skeleton" of your code (classes, signatures, docstrings), ignoring implementations.
 
-**Example `.deepbase.toml`:**
-```toml
-# Add more directories to ignore.
-# These will be added to the default ones.
-ignore_dirs = [
-  "my_assets_folder",
-  "experimental"
-]
+```sh
+deepbase . --toon
+# or
+deepbase . -t
+```
+*Result: LLMs understand your architecture using minimal tokens.*
 
-# Add more extensions or filenames to include.
-significant_extensions = [
-  ".cfg",
-  "Makefile"
-]
+### 3. Hybrid Mode (Focus)
+
+This is the power user feature. You can provide the TOON skeleton for the entire project (background context) while focusing on specific files (full content).
+
+**Focus via CLI:**
+Use `-f` or `--focus` with glob patterns (e.g., `*auth*`, `src/utils/*`).
+
+```sh
+deepbase . --toon --focus "server/controllers/*" --focus "client/src/login.js"
 ```
 
-### Single File Analysis (New!)
+**Focus via File:**
+Instead of typing patterns every time, create a text file (e.g., `context_task.txt`) with the list of files/folders you are working on.
+
+*content of `context_task.txt`:*
+```text
+server/routes/auth.js
+server/models/User.js
+client/src/components/LoginForm.jsx
+```
+
+Run deepbase loading the file:
+```sh
+deepbase . --toon --focus-file context_task.txt
+```
+
+### 4. Single File Analysis
 
 DeepBase supports analyzing a single specific file.
 
-**1. Structure Only (Default)**
-By default, providing a single file will extract only its outline/structure (headers). This is useful for quickly understanding the organization of a large document without reading everything.
+**Structure Only (Default)**
+Extracts only the outline/headers. Useful for large documentation files.
 
 ```sh
 deepbase README.md
-# Generates "llm_context.md" containing only the headers tree.
 ```
 
-**2. Structure + Content**
-If you want both the structure outline AND the full file content appended at the end, use the `--all` (or `-a`) flag.
+**Structure + Content**
+Appends the full content after the structure.
 
 ```sh
 deepbase README.md --all
-# Generates "llm_context.md" containing the outline followed by the full text.
 ```
 
-*Currently optimized for Markdown files.*
+### Configuration (.deepbase.toml)
 
+You can customize behavior by creating a `.deepbase.toml` file in your project root:
+
+```toml
+ignore_dirs = ["my_assets", "experimental"]
+significant_extensions = [".cfg", "Makefile", ".tsx"]
+```
 
 ## Development Workflow
 
-If you want to contribute or test the tool locally, follow these steps.
-
-### 1. Local Setup & Testing
-Clones the repo and installs the package in "editable" mode with development dependencies.
+If you want to contribute or test the tool locally:
 
 ```sh
 # Install in editable mode
@@ -99,31 +117,9 @@ pip install -e ".[dev]"
 
 # Run tests
 pytest
-
-# Test the tool locally without reinstalling
-# You can now use the 'deepbase' command directly and it reflects your code changes immediately.
-deepbase ./README.md
 ```
-
-### 2. Release Process
-To create a new release (which triggers the PyPI deployment pipeline):
-
-1.  **Update Version**: Bump the version number in `pyproject.toml` (e.g., `1.2.0` -> `1.3.0`).
-2.  **Commit & Push**:
-    ```sh
-    git add pyproject.toml
-    git commit -m "Bump version to 1.3.0"
-    git push origin main
-    ```
-3.  **Create a Tag**: This usually triggers the CI/CD pipeline.
-    ```sh
-    git tag v1.3.0
-    git push origin v1.3.0
-    ```
-4.  **GitHub Release**: Go to GitHub releases page and draft a new release from the tag.
-
-*Currently optimized for Markdown files. Support for `.docx` and `.tex` structure extraction is coming soon.*
 
 ## License
 
 This project is released under the GPL 3 license. See the `LICENSE` file for details.
+```
