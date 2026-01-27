@@ -20,7 +20,8 @@ def test_extract_markdown_structure_no_headers():
     """Testa un file markdown senza intestazioni."""
     content = "Solo testo semplice.\nNessun titolo qui."
     result = extract_markdown_structure(content)
-    assert "Nessuna struttura rilevata" in result
+    # FIX: Aggiunta la parola 'Markdown' per matchare l'output aggiornato
+    assert "Nessuna struttura Markdown rilevata" in result
 
 def test_extract_markdown_structure_complex():
     """Testa che il codice e i commenti non vengano confusi per header."""
