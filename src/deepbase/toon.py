@@ -124,6 +124,40 @@ def _handle_minified_config(content: str) -> str:
         return "(Empty or comments-only file)"
     return "\n".join(lines)
 
+
+def _handle_latex_structure(content: str) -> str:
+    """
+    Minimizza il LaTeX mantenendo struttura, pacchetti e comandi chiave.
+    Rimuove il testo semplice.
+    """
+    keep_patterns = [
+        r'^\s*\\documentclass',       # Tipo documento
+        r'^\s*\\usepackage',          # Dipendenze
+        r'^\s*\\input',               # Inclusioni file
+        r'^\s*\\include',             # Inclusioni file
+        r'^\s*\\(part|chapter|section|subsection|subsubsection)', # Struttura
+        r'^\s*\\begin',               # Inizio blocchi (figure, table, document)
+        r'^\s*\\end',                 # Fine blocchi
+        r'^\s*\\title',
+        r'^\s*\\author',
+        r'^\s*\\date'
+    ]
+    
+    combined_pattern = re.compile('|'.join(keep_patterns))
+    lines = []
+    
+    for line in content.splitlines():
+        # Rimuove commenti
+        line = line.split('%')[0].rstrip()
+        if combined_pattern.match(line):
+            lines.append(line)
+            
+    if not lines:
+        return "(LaTeX content empty or purely textual)"
+        
+    return "\n".join(lines)
+
+
 def generate_toon_representation(file_path: str, content: str) -> str:
     """
     Genera una rappresentazione TOON (Token Oriented) in base al tipo di file.
@@ -145,6 +179,10 @@ def generate_toon_representation(file_path: str, content: str) -> str:
     # 2. MARKDOWN (Documentazione)
     elif ext in [".md", ".markdown"]:
         return _handle_markdown(content)
+    
+    # --- 2.5 LATEX ---
+    elif ext in [".tex", ".sty", ".cls"]:
+        return _handle_latex_structure(content)
 
     # 3. CONFIGURAZIONE STRUTTURATA (TOML, INI, CFG)
     elif ext in [".toml", ".ini", ".cfg"]:

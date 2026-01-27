@@ -2,21 +2,19 @@
 
 import os
 import typer
-import fnmatch  # Necessario per il pattern matching
+import fnmatch
 from rich.console import Console
 from rich.progress import Progress
 import tomli
 import chardet
+# --- NUOVI IMPORT PER LA VERSIONE ---
+from importlib.metadata import version as get_package_version, PackageNotFoundError
 from typing import List, Dict, Any, Set, Optional
 
 from deepbase.toon import generate_toon_representation
 from deepbase.parsers import get_document_structure
 
-# ... (LE CONFIGURAZIONI DEFAULT_CONFIG e HELPER RIMANGONO INVARIATE) ...
-# Assicurati di copiare le funzioni: load_config, is_significant_file, 
-# generate_directory_tree, get_all_significant_files, read_file_content 
-# dalla versione precedente.
-
+# --- CONFIGURAZIONI (Invariate) ---
 DEFAULT_CONFIG = {
     "ignore_dirs": {
         "__pycache__", ".git", ".idea", ".vscode", "venv", ".venv", "env",
@@ -25,10 +23,11 @@ DEFAULT_CONFIG = {
         "site", "*.egg-info", "coverage"
     },
     "significant_extensions": {
-        ".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".scss", ".sql", # Aggiunto jsx/tsx
+        ".py", ".java", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".scss", ".sql",
         ".md", ".json", ".xml", ".yml", ".yaml", ".sh", ".bat", "Dockerfile",
         ".dockerignore", ".gitignore", "requirements.txt", "pom.xml", "gradlew",
-        "pyproject.toml", "setup.py", "package.json", "tsconfig.json" # Aggiunto package/ts config
+        "pyproject.toml", "setup.py", "package.json", "tsconfig.json",
+        ".tex", ".bib", ".sty", ".cls"
     }
 }
 
@@ -39,11 +38,8 @@ app = typer.Typer(
 )
 console = Console()
 
-# ... [INSERISCI QUI LE FUNZIONI HELPER: load_config, generate_directory_tree, etc.] ...
-# Per brevità non le ripeto se non sono cambiate, ma devono esserci nel file finale.
-
+# --- HELPER FUNCTIONS (Invariate) ---
 def load_config(root_dir: str) -> Dict[str, Any]:
-    """Loads configuration from .deepbase.toml if available."""
     config_path = os.path.join(root_dir, ".deepbase.toml")
     config = DEFAULT_CONFIG.copy()
     if os.path.exists(config_path):
@@ -59,7 +55,7 @@ def load_config(root_dir: str) -> Dict[str, Any]:
 def is_significant_file(file_path: str, significant_extensions: Set[str]) -> bool:
     file_name = os.path.basename(file_path)
     if file_name in significant_extensions: return True
-    _, ext = os.path.splitext(file_name)
+    _, ext = os.path.splitext(file_path) # Corretto os.path.splitext(file_name) -> file_path per sicurezza
     return ext in significant_extensions
 
 def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
@@ -99,33 +95,20 @@ def read_file_content(file_path: str) -> str:
     except Exception as e:
         return f"!!! Error reading file: {e} !!!"
 
-
-# --- NEW HELPER FOR FOCUS ---
 def matches_focus(file_path: str, root_dir: str, focus_patterns: List[str]) -> bool:
-    """Check if the file path matches any of the focus patterns."""
     if not focus_patterns:
         return False
-    
-    # Rendi il path relativo per il matching (es. src/main.py)
     rel_path = os.path.relpath(file_path, root_dir)
-    # Supporta anche slash normali su Windows
     rel_path_fwd = rel_path.replace(os.sep, '/')
-    
     for pattern in focus_patterns:
-        # Se il pattern finisce con /, matchiamo una directory e tutto il contenuto
         clean_pattern = pattern.replace(os.sep, '/')
-        
-        # Match esatto file, match wildcard o match startswith directory
         if fnmatch.fnmatch(rel_path_fwd, clean_pattern):
             return True
-        if clean_pattern in rel_path_fwd: # Match parziale semplice (contiene stringa)
+        if clean_pattern in rel_path_fwd:
             return True
-            
     return False
 
-# --- Legge il file di focus ---
 def load_focus_patterns_from_file(file_path: str) -> List[str]:
-    """Legge pattern da un file di testo (uno per riga), ignorando # commenti."""
     patterns = []
     if os.path.exists(file_path):
         try:
@@ -133,7 +116,6 @@ def load_focus_patterns_from_file(file_path: str) -> List[str]:
                 lines = f.readlines()
             for line in lines:
                 line = line.strip()
-                # Ignora righe vuote o che iniziano con #
                 if line and not line.startswith("#"):
                     patterns.append(line)
         except Exception as e:
@@ -141,51 +123,71 @@ def load_focus_patterns_from_file(file_path: str) -> List[str]:
     else:
         console.print(f"[bold yellow]Warning:[/bold yellow] Focus file '{file_path}' not found.")
     return patterns
+
+
+# --- FUNZIONE CALLBACK PER VERSIONE ---
+def version_callback(value: bool):
+    if value:
+        try:
+            v = get_package_version("deepbase")
+            console.print(f"DeepBase version: [bold cyan]{v}[/bold cyan]")
+        except PackageNotFoundError:
+            console.print("DeepBase version: [yellow]unknown (editable/dev mode)[/yellow]")
+        raise typer.Exit()
+
 # --- MAIN COMMAND ---
 
 @app.command()
 def create(
-    target: str = typer.Argument(..., help="The file or directory to scan."),
-    output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output."),
-    include_all: bool = typer.Option(False, "--all", "-a", help="Include full content of ALL files."),
-    toon_mode: bool = typer.Option(False, "--toon", "-t", help="Use 'Skeleton' mode for non-focused files."),
-    
-    # 1. Focus Flag (Manual)
-    focus: Optional[List[str]] = typer.Option(
-        None, "--focus", "-f", 
-        help="Pattern to focus on. Can be used multiple times."
+    # Nota: Ho reso 'target' facoltativo (Optional) nel type hint solo per evitare errori 
+    # statici se non viene passato quando si usa --version, 
+    # ma Typer lo gestirà comunque come richiesto se non eseguiamo la callback.
+    target: str = typer.Argument(
+        None, # Default a None per permettere a --version di funzionare senza target
+        help="The file or directory to scan."
     ),
     
-    # 2. Focus File (File based)
-    focus_file: Optional[str] = typer.Option(
-        None, "--focus-file", "-ff",
-        help="Path to a text file containing a list of focus patterns (one per line)."
-    )
+    # --- FLAG VERSIONE ---
+    version: Optional[bool] = typer.Option(
+        None, "--version", "-v", 
+        callback=version_callback, 
+        is_eager=True, # IMPORTANTE: Processa questo flag prima di controllare gli argomenti required
+        help="Show the application version and exit."
+    ),
+
+    output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file."),
+    
+    # NOTA: Ho cambiato lo short flag di verbose da -v a -V per lasciare -v alla version
+    verbose: bool = typer.Option(False, "--verbose", "-V", help="Show detailed output."),
+    
+    include_all: bool = typer.Option(False, "--all", "-a", help="Include full content of ALL files."),
+    toon_mode: bool = typer.Option(False, "--toon", "-t", help="Use 'Skeleton' mode for non-focused files."),
+    focus: Optional[List[str]] = typer.Option(None, "--focus", "-f", help="Pattern to focus on."),
+    focus_file: Optional[str] = typer.Option(None, "--focus-file", "-ff", help="Path to focus patterns file.")
 ):
     """
     Analyzes a directory OR a single file.
     Hybrid workflow with Context Skeleton + Focused Content.
     """
+    
+    # Se target è None (succede solo se uno lancia deepbase senza argomenti e senza --version)
+    if target is None:
+        # Mostra help ed esci
+        ctx = typer.get_current_context()
+        console.print("[red]Error: Missing argument 'TARGET'.[/red]")
+        console.print(ctx.get_help())
+        raise typer.Exit(code=1)
+
     if not os.path.exists(target):
         console.print(f"[bold red]Error:[/bold red] Target not found: '{target}'")
         raise typer.Exit(code=1)
 
-    # --- LOGICA DI MERGE DEI FOCUS PATTERNS ---
+    # --- LOGICA FOCUS MERGE ---
     active_focus_patterns = []
-    
-    # Aggiungi quelli da CLI
-    if focus:
-        active_focus_patterns.extend(focus)
-    
-    # Aggiungi quelli da FILE
+    if focus: active_focus_patterns.extend(focus)
     if focus_file:
         file_patterns = load_focus_patterns_from_file(focus_file)
-        if file_patterns:
-            active_focus_patterns.extend(file_patterns)
-            console.print(f"[green]Loaded {len(file_patterns)} patterns from '{focus_file}'[/green]")
-
-    # Pulizia duplicati (opzionale ma utile)
+        if file_patterns: active_focus_patterns.extend(file_patterns)
     active_focus_patterns = list(set(active_focus_patterns))
 
     console.print(f"[bold green]Analyzing '{target}'...[/bold green]")
@@ -212,7 +214,7 @@ def create(
     try:
         with open(output, "w", encoding="utf-8") as outfile:
             
-            # CASE 1: SINGLE FILE (Minimally affected)
+            # CASE 1: SINGLE FILE
             if os.path.isfile(target):
                 filename = os.path.basename(target)
                 outfile.write(f"# File Structure Analysis: {filename}\n\n")
@@ -241,24 +243,17 @@ def create(
                 outfile.write("\n\n")
 
                 # 2. Content Generation
-                # Check based on MERGED active_focus_patterns
                 if include_all or toon_mode or active_focus_patterns:
-                    
                     section_title = "FILE CONTENTS (HYBRID)" if (toon_mode and active_focus_patterns) else \
                                     ("SEMANTIC SKELETONS (TOON)" if toon_mode else "FILE CONTENTS")
-                                    
                     outfile.write(fmt_header(section_title))
-                    
                     files = get_all_significant_files(target, config)
                     
                     with Progress(console=console) as progress:
                         task = progress.add_task("[cyan]Processing...", total=len(files))
                         for fpath in files:
                             rel_path = os.path.relpath(fpath, target).replace('\\', '/')
-                            
-                            # DECISION MATRIX based on active_focus_patterns
                             is_in_focus = active_focus_patterns and matches_focus(fpath, target, active_focus_patterns)
-                            
                             should_write_full = include_all or is_in_focus
                             should_write_toon = toon_mode and not should_write_full
                             
@@ -267,18 +262,13 @@ def create(
                                 continue
 
                             progress.update(task, advance=1, description=f"[cyan]{rel_path}[/cyan]")
-                            
                             marker = ""
                             if is_in_focus and toon_mode: marker = " [FOCUSED - FULL CONTENT]"
                             
                             outfile.write(fmt_file_start(rel_path + marker))
                             content = read_file_content(fpath)
-                            
-                            if should_write_full:
-                                outfile.write(content)
-                            elif should_write_toon:
-                                outfile.write(generate_toon_representation(fpath, content))
-                                
+                            if should_write_full: outfile.write(content)
+                            elif should_write_toon: outfile.write(generate_toon_representation(fpath, content))
                             outfile.write(fmt_file_end(rel_path))
                             outfile.write(fmt_separator())
                 else:
@@ -289,7 +279,6 @@ def create(
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
-
 
 if __name__ == "__main__":
     app()
