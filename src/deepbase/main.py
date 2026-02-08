@@ -1,3 +1,4 @@
+# src/deepbase/main.py (AGGIORNAMENTO - sezioni modificate)
 # src/deepbase/main.py
 
 import os
@@ -11,10 +12,11 @@ import chardet
 from importlib.metadata import version as get_package_version, PackageNotFoundError
 from typing import List, Dict, Any, Set, Optional
 
-from deepbase.toon import generate_toon_representation
+from deepbase.toon import generate_toon_representation, generate_database_focused
 from deepbase.parsers import get_document_structure
+from deepbase.database import is_sqlite_database, get_database_schema, generate_database_context_full
 
-# --- CONFIGURAZIONI (Invariate) ---
+# --- CONFIGURAZIONI AGGIORNATE ---
 DEFAULT_CONFIG = {
     "ignore_dirs": {
         "__pycache__", ".git", ".idea", ".vscode", "venv", ".venv", "env",
@@ -27,7 +29,9 @@ DEFAULT_CONFIG = {
         ".md", ".json", ".xml", ".yml", ".yaml", ".sh", ".bat", "Dockerfile",
         ".dockerignore", ".gitignore", "requirements.txt", "pom.xml", "gradlew",
         "pyproject.toml", "setup.py", "package.json", "tsconfig.json",
-        ".tex", ".bib", ".sty", ".cls"
+        ".tex", ".bib", ".sty", ".cls",
+        # --- DATABASE EXTENSIONS ---
+        ".db", ".sqlite", ".sqlite3", ".db3"
     }
 }
 
@@ -38,7 +42,7 @@ app = typer.Typer(
 )
 console = Console()
 
-# --- HELPER FUNCTIONS (Invariate) ---
+
 def load_config(root_dir: str) -> Dict[str, Any]:
     config_path = os.path.join(root_dir, ".deepbase.toml")
     config = DEFAULT_CONFIG.copy()
@@ -52,11 +56,17 @@ def load_config(root_dir: str) -> Dict[str, Any]:
             pass
     return config
 
+
 def is_significant_file(file_path: str, significant_extensions: Set[str]) -> bool:
     file_name = os.path.basename(file_path)
-    if file_name in significant_extensions: return True
-    _, ext = os.path.splitext(file_path) # Corretto os.path.splitext(file_name) -> file_path per sicurezza
+    if file_name in significant_extensions: 
+        return True
+    _, ext = os.path.splitext(file_path)
+    # Check also for database files without extension or with different naming
+    if is_sqlite_database(file_path):
+        return True
     return ext in significant_extensions
+
 
 def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
     tree_str = f"Project Structure in: {os.path.abspath(root_dir)}\n\n"
@@ -70,8 +80,12 @@ def generate_directory_tree(root_dir: str, config: Dict[str, Any]) -> str:
         sub_indent = ' ' * 4 * (level + 1)
         for f in sorted(filenames):
             if is_significant_file(os.path.join(dirpath, f), significant_exts):
-                tree_str += f"{sub_indent}📄 {f}\n"
+                # Add database indicator
+                full_path = os.path.join(dirpath, f)
+                prefix = "🗄️ " if is_sqlite_database(full_path) else "📄 "
+                tree_str += f"{sub_indent}{prefix}{f}\n"
     return tree_str
+
 
 def get_all_significant_files(root_dir: str, config: Dict[str, Any]) -> List[str]:
     significant_files = []
@@ -85,7 +99,18 @@ def get_all_significant_files(root_dir: str, config: Dict[str, Any]) -> List[str
                 significant_files.append(file_path)
     return significant_files
 
+
 def read_file_content(file_path: str) -> str:
+    """Read file content with special handling for databases."""
+    # Handle SQLite databases specially
+    if is_sqlite_database(file_path):
+        try:
+            schema = get_database_schema(file_path)
+            return generate_database_context_full(schema, os.path.basename(file_path))
+        except Exception as e:
+            return f"!!! Error reading database: {e} !!!"
+    
+    # Normal file reading
     try:
         with open(file_path, "rb") as fb:
             raw_data = fb.read()
@@ -95,11 +120,23 @@ def read_file_content(file_path: str) -> str:
     except Exception as e:
         return f"!!! Error reading file: {e} !!!"
 
+
 def matches_focus(file_path: str, root_dir: str, focus_patterns: List[str]) -> bool:
     if not focus_patterns:
         return False
     rel_path = os.path.relpath(file_path, root_dir)
     rel_path_fwd = rel_path.replace(os.sep, '/')
+    
+    # Special handling for database table focusing
+    # Pattern like "database.db/users" means focus on 'users' table in database.db
+    db_table_focus = None
+    for pattern in focus_patterns:
+        if '.db/' in pattern or '.sqlite/' in pattern:
+            parts = pattern.split('/')
+            if len(parts) >= 2 and any(ext in parts[0] for ext in ['.db', '.sqlite']):
+                db_table_focus = (parts[0], parts[1])
+                break
+    
     for pattern in focus_patterns:
         clean_pattern = pattern.replace(os.sep, '/')
         if fnmatch.fnmatch(rel_path_fwd, clean_pattern):
@@ -107,6 +144,27 @@ def matches_focus(file_path: str, root_dir: str, focus_patterns: List[str]) -> b
         if clean_pattern in rel_path_fwd:
             return True
     return False
+
+
+def extract_focused_tables(file_path: str, focus_patterns: List[str]) -> List[str]:
+    """
+    Extract table names from focus patterns for database files.
+    Pattern format: "database.db/table_name" or "*.db/users"
+    """
+    if not is_sqlite_database(file_path):
+        return []
+    
+    db_name = os.path.basename(file_path)
+    focused_tables = []
+    
+    for pattern in focus_patterns:
+        if '/' in pattern:
+            db_pattern, table_name = pattern.split('/', 1)
+            if fnmatch.fnmatch(db_name, db_pattern):
+                focused_tables.append(table_name)
+    
+    return focused_tables
+
 
 def load_focus_patterns_from_file(file_path: str) -> List[str]:
     patterns = []
@@ -125,7 +183,6 @@ def load_focus_patterns_from_file(file_path: str) -> List[str]:
     return patterns
 
 
-# --- FUNZIONE CALLBACK PER VERSIONE ---
 def version_callback(value: bool):
     if value:
         try:
@@ -135,44 +192,37 @@ def version_callback(value: bool):
             console.print("DeepBase version: [yellow]unknown (editable/dev mode)[/yellow]")
         raise typer.Exit()
 
-# --- MAIN COMMAND ---
 
 @app.command()
 def create(
-    # Nota: Ho reso 'target' facoltativo (Optional) nel type hint solo per evitare errori 
-    # statici se non viene passato quando si usa --version, 
-    # ma Typer lo gestirà comunque come richiesto se non eseguiamo la callback.
     target: str = typer.Argument(
-        None, # Default a None per permettere a --version di funzionare senza target
+        None,
         help="The file or directory to scan."
     ),
     
-    # --- FLAG VERSIONE ---
     version: Optional[bool] = typer.Option(
         None, "--version", "-v", 
         callback=version_callback, 
-        is_eager=True, # IMPORTANTE: Processa questo flag prima di controllare gli argomenti required
+        is_eager=True,
         help="Show the application version and exit."
     ),
 
     output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file."),
     
-    # NOTA: Ho cambiato lo short flag di verbose da -v a -V per lasciare -v alla version
     verbose: bool = typer.Option(False, "--verbose", "-V", help="Show detailed output."),
     
     include_all: bool = typer.Option(False, "--all", "-a", help="Include full content of ALL files."),
     toon_mode: bool = typer.Option(False, "--toon", "-t", help="Use 'Skeleton' mode for non-focused files."),
-    focus: Optional[List[str]] = typer.Option(None, "--focus", "-f", help="Pattern to focus on."),
+    focus: Optional[List[str]] = typer.Option(None, "--focus", "-f", help="Pattern to focus on. For DBs: 'file.db/tablename'"),
     focus_file: Optional[str] = typer.Option(None, "--focus-file", "-ff", help="Path to focus patterns file.")
 ):
     """
     Analyzes a directory OR a single file.
     Hybrid workflow with Context Skeleton + Focused Content.
+    Supports SQLite databases with schema extraction.
     """
     
-    # Se target è None (succede solo se uno lancia deepbase senza argomenti e senza --version)
     if target is None:
-        # Mostra help ed esci
         ctx = typer.get_current_context()
         console.print("[red]Error: Missing argument 'TARGET'.[/red]")
         console.print(ctx.get_help())
@@ -184,10 +234,12 @@ def create(
 
     # --- LOGICA FOCUS MERGE ---
     active_focus_patterns = []
-    if focus: active_focus_patterns.extend(focus)
+    if focus: 
+        active_focus_patterns.extend(focus)
     if focus_file:
         file_patterns = load_focus_patterns_from_file(focus_file)
-        if file_patterns: active_focus_patterns.extend(file_patterns)
+        if file_patterns: 
+            active_focus_patterns.extend(file_patterns)
     active_focus_patterns = list(set(active_focus_patterns))
 
     console.print(f"[bold green]Analyzing '{target}'...[/bold green]")
@@ -199,17 +251,29 @@ def create(
 
     # --- STYLE CONFIGURATION ---
     if toon_mode:
-        def fmt_header(title): return f"### {title}\n\n"
-        def fmt_file_start(path): return f"> FILE: {path}\n"
-        def fmt_file_end(path):   return "\n"
-        def fmt_separator():      return "" 
+        def fmt_header(title): 
+            return f"### {title}\n\n"
+        def fmt_file_start(path): 
+            # Add database indicator
+            is_db = is_sqlite_database(os.path.join(os.path.dirname(target) if os.path.isfile(target) else target, path))
+            icon = "🗄️ " if is_db else ""
+            return f"> FILE: {icon}{path}\n"
+        def fmt_file_end(path):   
+            return "\n"
+        def fmt_separator():      
+            return "" 
     else:
         def fmt_header(title): 
             line = "="*80 
             return f"{line}\n### {title} ###\n{line}\n\n"
-        def fmt_file_start(path): return f"--- START OF FILE: {path} ---\n\n"
-        def fmt_file_end(path):   return f"\n\n--- END OF FILE: {path} ---\n"
-        def fmt_separator():      return "-" * 40 + "\n\n"
+        def fmt_file_start(path): 
+            is_db = is_sqlite_database(os.path.join(os.path.dirname(target) if os.path.isfile(target) else target, path))
+            icon = "🗄️ " if is_db else ""
+            return f"--- START OF FILE: {icon}{path} ---\n\n"
+        def fmt_file_end(path):   
+            return f"\n\n--- END OF FILE: {path} ---\n"
+        def fmt_separator():      
+            return "-" * 40 + "\n\n"
 
     try:
         with open(output, "w", encoding="utf-8") as outfile:
@@ -217,19 +281,56 @@ def create(
             # CASE 1: SINGLE FILE
             if os.path.isfile(target):
                 filename = os.path.basename(target)
-                outfile.write(f"# File Structure Analysis: {filename}\n\n")
-                content = read_file_content(target)
-                structure = get_document_structure(target, content)
-                outfile.write(fmt_header("DOCUMENT STRUCTURE (Outline)"))
-                outfile.write(structure or "N/A")
-                outfile.write("\n\n")
-                if include_all or toon_mode:
-                     section = "SEMANTIC SKELETONS (TOON)" if toon_mode else "FILE CONTENT"
-                     outfile.write(fmt_header(section))
-                     outfile.write(fmt_file_start(filename))
-                     if toon_mode: outfile.write(generate_toon_representation(target, content))
-                     else: outfile.write(content)
-                     outfile.write(fmt_file_end(filename))
+                is_db = is_sqlite_database(target)
+                
+                if is_db:
+                    outfile.write(f"# Database Analysis: {filename}\n\n")
+                else:
+                    outfile.write(f"# File Structure Analysis: {filename}\n\n")
+                
+                # Handle databases specially
+                if is_db:
+                    schema = get_database_schema(target)
+                    
+                    # Determine mode
+                    focused_tables = extract_focused_tables(target, active_focus_patterns)
+                    is_focused = bool(focused_tables) or (active_focus_patterns and any(
+                        fnmatch.fnmatch(filename, p) or p in filename for p in active_focus_patterns
+                    ))
+                    
+                    if toon_mode and not is_focused:
+                        # TOON mode: minimal schema
+                        outfile.write(fmt_header("DATABASE SCHEMA (TOON)"))
+                        outfile.write(generate_toon_representation(target, ""))
+                    elif toon_mode and focused_tables:
+                        # Hybrid: TOON + focused tables detailed
+                        outfile.write(fmt_header("DATABASE SCHEMA (HYBRID)"))
+                        outfile.write(generate_database_focused(target, focused_tables))
+                    else:
+                        # Full mode or focused
+                        outfile.write(fmt_header("DATABASE SCHEMA"))
+                        if focused_tables:
+                            outfile.write(generate_database_focused(target, focused_tables))
+                        else:
+                            outfile.write(generate_database_context_full(schema, filename))
+                
+                else:
+                    # Regular file handling
+                    content = read_file_content(target)
+                    structure = get_document_structure(target, content)
+                    outfile.write(fmt_header("DOCUMENT STRUCTURE (Outline)"))
+                    outfile.write(structure or "N/A")
+                    outfile.write("\n\n")
+                    
+                    if include_all or toon_mode:
+                         section = "SEMANTIC SKELETONS (TOON)" if toon_mode else "FILE CONTENT"
+                         outfile.write(fmt_header(section))
+                         outfile.write(fmt_file_start(filename))
+                         if toon_mode: 
+                             outfile.write(generate_toon_representation(target, content))
+                         else: 
+                             outfile.write(content)
+                         outfile.write(fmt_file_end(filename))
 
             # CASE 2: DIRECTORY
             elif os.path.isdir(target):
@@ -253,7 +354,18 @@ def create(
                         task = progress.add_task("[cyan]Processing...", total=len(files))
                         for fpath in files:
                             rel_path = os.path.relpath(fpath, target).replace('\\', '/')
+                            is_db = is_sqlite_database(fpath)
+                            
+                            # Check focus
                             is_in_focus = active_focus_patterns and matches_focus(fpath, target, active_focus_patterns)
+                            
+                            # For databases, also check table-level focus
+                            focused_tables = []
+                            if is_db:
+                                focused_tables = extract_focused_tables(fpath, active_focus_patterns)
+                                if focused_tables:
+                                    is_in_focus = True
+                            
                             should_write_full = include_all or is_in_focus
                             should_write_toon = toon_mode and not should_write_full
                             
@@ -262,13 +374,34 @@ def create(
                                 continue
 
                             progress.update(task, advance=1, description=f"[cyan]{rel_path}[/cyan]")
+                            
+                            # Marker for focused items
                             marker = ""
-                            if is_in_focus and toon_mode: marker = " [FOCUSED - FULL CONTENT]"
+                            if is_in_focus and toon_mode: 
+                                marker = " [FOCUSED - FULL CONTENT]"
+                            elif is_db:
+                                marker = " [DATABASE]"
                             
                             outfile.write(fmt_file_start(rel_path + marker))
-                            content = read_file_content(fpath)
-                            if should_write_full: outfile.write(content)
-                            elif should_write_toon: outfile.write(generate_toon_representation(fpath, content))
+                            
+                            if is_db:
+                                # Database handling
+                                if should_write_full:
+                                    if focused_tables:
+                                        outfile.write(generate_database_focused(fpath, focused_tables))
+                                    else:
+                                        schema = get_database_schema(fpath)
+                                        outfile.write(generate_database_context_full(schema, os.path.basename(fpath)))
+                                else:  # TOON mode
+                                    outfile.write(generate_toon_representation(fpath, ""))
+                            else:
+                                # Regular file handling
+                                content = read_file_content(fpath)
+                                if should_write_full: 
+                                    outfile.write(content)
+                                elif should_write_toon: 
+                                    outfile.write(generate_toon_representation(fpath, content))
+                            
                             outfile.write(fmt_file_end(rel_path))
                             outfile.write(fmt_separator())
                 else:
@@ -279,6 +412,7 @@ def create(
     except Exception as e:
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
+
 
 if __name__ == "__main__":
     app()

@@ -1,9 +1,18 @@
-# src/deepbase/toon.py
+# src/deepbase/toon.py (AGGIORNAMENTO)
 
 import ast
 import os
 import re
 import json
+
+# Import database handling
+from deepbase.database import (
+    get_database_schema, 
+    generate_database_context_toon,
+    generate_database_context_hybrid,
+    is_sqlite_database
+)
+
 
 class ToonVisitor(ast.NodeVisitor):
     def __init__(self):
@@ -63,6 +72,7 @@ class ToonVisitor(ast.NodeVisitor):
             if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 self.visit(child)
 
+
 # --- Gestori per file Non-Python ---
 
 def _handle_markdown(content: str) -> str:
@@ -74,6 +84,7 @@ def _handle_markdown(content: str) -> str:
     if not lines:
         return "(Markdown file with no headers)"
     return "\n".join(lines)
+
 
 def _handle_toml_ini(content: str) -> str:
     """Estrae sezioni [Title] e chiavi, ignorando valori lunghi."""
@@ -91,6 +102,7 @@ def _handle_toml_ini(content: str) -> str:
             key = clean.split("=")[0].strip()
             lines.append(f"{key} = ...")
     return "\n".join(lines)
+
 
 def _handle_json_structure(content: str) -> str:
     """Prova a parsare JSON e restituire solo le chiavi di primo/secondo livello."""
@@ -110,6 +122,7 @@ def _handle_json_structure(content: str) -> str:
         return "(JSON Array or Scalar)"
     except:
         return "(Invalid JSON content)"
+
 
 def _handle_minified_config(content: str) -> str:
     """Rimuove righe vuote e commenti (per .gitignore, requirements.txt)."""
@@ -158,6 +171,17 @@ def _handle_latex_structure(content: str) -> str:
     return "\n".join(lines)
 
 
+def _handle_database_toon(file_path: str) -> str:
+    """Handle database files in TOON mode."""
+    if is_sqlite_database(file_path):
+        try:
+            schema = get_database_schema(file_path)
+            return generate_database_context_toon(schema, os.path.basename(file_path))
+        except Exception as e:
+            return f"(DB Error: {e})"
+    return "(Not a valid SQLite database)"
+
+
 def generate_toon_representation(file_path: str, content: str) -> str:
     """
     Genera una rappresentazione TOON (Token Oriented) in base al tipo di file.
@@ -165,6 +189,10 @@ def generate_toon_representation(file_path: str, content: str) -> str:
     _, ext = os.path.splitext(file_path)
     filename = os.path.basename(file_path)
     ext = ext.lower()
+
+    # 0. DATABASE (check prima per magic bytes, indipendentemente dall'estensione)
+    if is_sqlite_database(file_path):
+        return _handle_database_toon(file_path)
 
     # 1. PYTHON
     if ext == ".py":
@@ -216,3 +244,23 @@ def generate_toon_representation(file_path: str, content: str) -> str:
         if len(lines) > 10:
             return "\n".join(lines[:10]) + f"\n... ({len(lines)-10} more meaningful lines hidden)"
         return minified
+
+
+def generate_database_focused(file_path: str, focused_tables: list = None) -> str:
+    """
+    Generate database context with specific tables in full detail.
+    Used when database is in focus mode.
+    """
+    if not is_sqlite_database(file_path):
+        return "(Not a valid SQLite database)"
+    
+    try:
+        schema = get_database_schema(file_path)
+        db_name = os.path.basename(file_path)
+        
+        if focused_tables:
+            return generate_database_context_hybrid(schema, db_name, focused_tables)
+        else:
+            return generate_database_context_full(schema, db_name)
+    except Exception as e:
+        return f"(Error processing database: {e})"
