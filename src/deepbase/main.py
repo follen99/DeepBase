@@ -45,102 +45,6 @@ DEFAULT_CONFIG = {
 LIGHT_MODE_NOTICE = """> **[LIGHT MODE]** Questo file è stato generato in modalità risparmio token: vengono incluse solo le firme dei metodi/funzioni e i commenti iniziali dei file. Il corpo del codice è omesso. Se hai bisogno di approfondire un file, una classe o un metodo specifico, chiedi all'utente di fornire la porzione di codice completa.
 """
 
-# EPILOG_TEXT = """
-# [bold]Configuration (.deepbase.toml):[/bold]
-# Create a [cyan].deepbase.toml[/cyan] in your project root to customize behavior:
-
-#   [dim]# Ignore additional directories[/dim]
-#   ignore_dirs = ["my_assets", "experimental", ".cache"]
-
-#   [dim]# Ignore specific files[/dim]  
-#   ignore_files = ["*.log", "secrets.env"]
-
-#   [dim]# Add extra file extensions to include[/dim]
-#   significant_extensions = [".cfg", "Makefile", ".tsx", ".vue"]
-
-# [bold]Documentation:[/] https://follen99.github.io/DeepBase/
-# [bold]Repository:[/] https://github.com/follen99/DeepBase
-# [bold]Issues:[/] https://github.com/follen99/DeepBase/issues
-# [bold]PyPI:[/] https://pypi.org/project/deepbase/
-
-# [italic]DeepBase scans your project and consolidates it for LLM context analysis.[/italic]
-# """
-
-app = typer.Typer(
-    name="deepbase",
-    add_completion=False,
-    rich_markup_mode="rich"
-)
-
-@app.callback(invoke_without_command=True)
-def main_callback(
-    ctx: typer.Context,
-    help: bool = typer.Option(False, "--help", "-h", is_eager=True, help="Show this help message and exit.")
-):
-    if help or ctx.invoked_subcommand is None:
-        console.print(Panel.fit(
-            "[bold cyan]DeepBase[/bold cyan] — Consolidate project context for LLMs\n\n"
-            "[bold]Usage:[/bold] [green]deepbase[/green] [OPTIONS] [TARGET]\n\n"
-            "[bold]Arguments:[/bold]\n"
-            "  [cyan]TARGET[/cyan]  The file or directory to scan  [dim][default: current dir][/dim]\n",
-            title="DeepBase v1.7.0", border_style="cyan"
-        ))
-        
-        # Options Table
-        options_table = Table(show_header=False, box=None, padding=(0, 2))
-        options_table.add_column(style="cyan", no_wrap=True)
-        options_table.add_column(style="green", no_wrap=True)
-        options_table.add_column()
-        
-        options = [
-            ("-v, --version", "", "Show version and exit"),
-            ("-o, --output", "TEXT", "Output file [dim][default: llm_context.md][/dim]"),
-            ("-V, --verbose", "", "Show detailed output"),
-            ("-a, --all", "", "Include full content of ALL files"),
-            ("-l, --light", "", "Token-saving mode (signatures only)"),
-            ("-f, --focus", "TEXT", "Pattern to focus on (repeatable)"),
-            ("-ff, --focus-file", "TEXT", "Path to focus patterns file"),
-            ("-h, --help", "", "Show this message and exit"),
-        ]
-        for opt, meta, desc in options:
-            options_table.add_row(opt, meta, desc)
-        
-        console.print(Panel(options_table, title="Options", border_style="green", title_align="left"))
-        
-                # Configuration Panel (soluzione semplice)
-        config_content = """Create a [cyan].deepbase.toml[/cyan] in your project root:
-
-[dim]# Ignore additional directories[/dim]
-[yellow]ignore_dirs = ["my_assets", "experimental"][/yellow]
-
-[dim]# Ignore specific files[/dim]
-[yellow]ignore_files = ["*.log", "secrets.env"][/yellow]
-
-[dim]# Add extra file extensions[/dim]
-[yellow]significant_extensions = [".cfg", "Makefile", ".tsx"][/yellow]"""
-
-        console.print(Panel(
-            config_content,
-            title="Configuration (.deepbase.toml)", 
-            border_style="yellow",
-            title_align="left"
-        ))
-        
-        # Links Table
-        links_table = Table(show_header=False, box=None, padding=(0, 2))
-        links_table.add_column(style="bold")
-        links_table.add_column(style="blue")
-        
-        links_table.add_row("Documentation:", "https://follen99.github.io/DeepBase/")
-        links_table.add_row("Repository:", "https://github.com/follen99/DeepBase")
-        links_table.add_row("Issues:", "https://github.com/follen99/DeepBase/issues")
-        links_table.add_row("PyPI:", "https://pypi.org/project/deepbase/")
-        
-        console.print(Panel(links_table, title="Links", border_style="blue", title_align="left"))
-        
-        raise typer.Exit()
-
-
 console = Console()
 
 # --- UTILS ---
@@ -176,11 +80,9 @@ def estimate_tokens(size_bytes: int) -> str:
 
 
 def estimate_tokens_for_content(text: str) -> int:
-    """Stima i token di una stringa già processata (non del file raw)."""
     return math.ceil(len(text.encode("utf-8")) / 4)
 
 def calculate_light_tokens(file_path: str, content: str) -> int:
-    """Calcola i token della rappresentazione light di un file."""
     from deepbase.toon import generate_light_representation
     light_repr = generate_light_representation(file_path, content)
     return estimate_tokens_for_content(light_repr)
@@ -188,15 +90,12 @@ def calculate_light_tokens(file_path: str, content: str) -> int:
 def is_significant_file(file_path: str, config: Dict[str, Any], output_file_abs: str = None) -> bool:
     file_name = os.path.basename(file_path)
 
-    # Check 1: Esclusione del file di output corrente (tramite path assoluto)
     if output_file_abs and os.path.abspath(file_path) == output_file_abs:
         return False
 
-    # Check 2: Esclusione per nome (es: llm_context.md già esistente nella dir target)
     if output_file_abs and file_name == os.path.basename(output_file_abs):
         return False
 
-    # Check 3: Esclusione file spazzatura (lockfiles, etc)
     if file_name in config["ignore_files"]:
         return False
 
@@ -243,11 +142,8 @@ def _generate_tree_recursive(
     config: Dict[str, Any],
     total_project_size: int,
     output_file_abs: str,
-    light_mode: bool = False  # serve per decidere se includere o meno le stime token nei file (in light mode non sono affidabili, meglio ometterle
+    light_mode: bool = False
 ) -> Tuple[str, int]:
-    """
-    Ritorna una tupla: (stringa_visuale_albero, dimensione_totale_bytes_subtree).
-    """
     output_str = ""
     subtree_size = 0
 
@@ -299,7 +195,6 @@ def _generate_tree_recursive(
             try:
                 raw_size = os.path.getsize(full_path)
                 if light_mode and not is_sqlite_database(full_path):
-                    # In light mode, calcola i token dalla rappresentazione light
                     content = read_file_content(full_path)
                     light_repr = generate_light_representation(full_path, content)
                     size = len(light_repr.encode("utf-8"))
@@ -314,11 +209,8 @@ def _generate_tree_recursive(
 
 def generate_directory_tree(root_dir: str, config: Dict[str, Any], output_file_abs: str, light_mode: bool = False) -> Tuple[str, int, int]:
     abs_root = os.path.abspath(root_dir)
-    # Per il totale in light mode, dovremmo idealmente processare tutto, ma per performance usiamo stima
     total_size = calculate_project_stats(root_dir, config, output_file_abs, light_mode)
-
     tree_body, _ = _generate_tree_recursive(root_dir, "", config, total_size, output_file_abs, light_mode)
-
     header = f"📁 {os.path.basename(abs_root) or '.'}/\n"
     total_tokens_est = math.ceil(total_size / 4)
     return header + tree_body, total_size, total_tokens_est
@@ -403,30 +295,86 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
-# Assenza di epilog
-@app.command(rich_help_panel="Main Commands")
-def create(
+# --- LOGICA PRINCIPALE (SENZA CLASSE TYPER) ---
+
+def main(
     target: str = typer.Argument(None, help="The file or directory to scan."),
+    help: bool = typer.Option(False, "--help", "-h", is_eager=True, help="Show this help message and exit."),
     version: Optional[bool] = typer.Option(None, "--version", "-v", callback=version_callback, is_eager=True, help="Show version and exit."),
     output: str = typer.Option("llm_context.md", "--output", "-o", help="The output file."),
     verbose: bool = typer.Option(False, "--verbose", "-V", help="Show detailed output."),
     include_all: bool = typer.Option(False, "--all", "-a", help="Include full content of ALL files."),
-    light_mode: bool = typer.Option(False, "--light", "-l", help="Token-saving mode: includes only method/function signatures instead of full code."),
-    focus: Optional[List[str]] = typer.Option(None, "--focus", "-f", help="Pattern to focus on (full content for matching files)."),
+    light_mode: bool = typer.Option(False, "--light", "-l", help="Token-saving mode (signatures only)."),
+    focus: Optional[List[str]] = typer.Option(None, "--focus", "-f", help="Pattern to focus on (repeatable)."),
     focus_file: Optional[str] = typer.Option(None, "--focus-file", "-ff", help="Path to focus patterns file.")
 ):
     """
     Analyzes a directory OR a single file.
-
     Default: structure tree only.
-    Use [bold]--all[/bold] for full content, [bold]--light[/bold] for signatures only,
-    or [bold]--focus[/bold] / [bold]--focus-file[/bold] for hybrid mode.
     """
-    if target is None:
-        console.print("[red]Error: Missing argument 'TARGET'.[/red]")
-        console.print(f"\n[bold]Usage:[/bold] deepbase [OPTIONS] [TARGET]\n\nTry [cyan]deepbase --help[/cyan] for more info.")
-        raise typer.Exit(code=1)
+    # 1. Custom HELP Logic
+    if help or target is None:
+        console.print(Panel.fit(
+            "[bold cyan]DeepBase[/bold cyan] — Consolidate project context for LLMs\n\n"
+            "[bold]Usage:[/bold] [green]deepbase[/green] [OPTIONS] [TARGET]\n\n"
+            "[bold]Arguments:[/bold]\n"
+            "  [cyan]TARGET[/cyan]  The file or directory to scan  [dim][default: current dir][/dim]\n",
+            title="DeepBase v1.7.0", border_style="cyan"
+        ))
+        
+        # Options Table
+        options_table = Table(show_header=False, box=None, padding=(0, 2))
+        options_table.add_column(style="cyan", no_wrap=True)
+        options_table.add_column(style="green", no_wrap=True)
+        options_table.add_column()
+        
+        options = [
+            ("-v, --version", "", "Show version and exit"),
+            ("-o, --output", "TEXT", "Output file [dim][default: llm_context.md][/dim]"),
+            ("-V, --verbose", "", "Show detailed output"),
+            ("-a, --all", "", "Include full content of ALL files"),
+            ("-l, --light", "", "Token-saving mode (signatures only)"),
+            ("-f, --focus", "TEXT", "Pattern to focus on (repeatable)"),
+            ("-ff, --focus-file", "TEXT", "Path to focus patterns file"),
+            ("-h, --help", "", "Show this message and exit"),
+        ]
+        for opt, meta, desc in options:
+            options_table.add_row(opt, meta, desc)
+        
+        console.print(Panel(options_table, title="Options", border_style="green", title_align="left"))
+        
+        config_content = """Create a [cyan].deepbase.toml[/cyan] in your project root:
 
+[dim]# Ignore additional directories[/dim]
+[yellow]ignore_dirs = ["my_assets", "experimental"][/yellow]
+
+[dim]# Ignore specific files[/dim]
+[yellow]ignore_files = ["*.log", "secrets.env"][/yellow]
+
+[dim]# Add extra file extensions[/dim]
+[yellow]significant_extensions = [".cfg", "Makefile", ".tsx"][/yellow]"""
+
+        console.print(Panel(
+            config_content,
+            title="Configuration (.deepbase.toml)", 
+            border_style="yellow",
+            title_align="left"
+        ))
+        
+        links_table = Table(show_header=False, box=None, padding=(0, 2))
+        links_table.add_column(style="bold")
+        links_table.add_column(style="blue")
+        
+        links_table.add_row("Documentation:", "https://follen99.github.io/DeepBase/")
+        links_table.add_row("Repository:", "https://github.com/follen99/DeepBase")
+        links_table.add_row("Issues:", "https://github.com/follen99/DeepBase/issues")
+        links_table.add_row("PyPI:", "https://pypi.org/project/deepbase/")
+        
+        console.print(Panel(links_table, title="Links", border_style="blue", title_align="left"))
+        
+        raise typer.Exit()
+
+    # 2. Main Logic Start
     if not os.path.exists(target):
         console.print(f"[bold red]Error:[/bold red] Target not found: '{target}'")
         raise typer.Exit(code=1)
@@ -448,8 +396,6 @@ def create(
 
     console.print(f"[bold green]Analyzing '{target}'...[/bold green]{mode_label}")
 
-    # --- Formatter helpers ---
-    # In light mode usiamo lo stesso formato compatto di TOON per leggibilità
     if light_mode:
         def fmt_header(title): return f"### {title}\n\n"
         def fmt_file_start(path, icon=""): return f"> FILE: {icon}{path}\n"
@@ -463,10 +409,7 @@ def create(
 
     try:
         with open(output, "w", encoding="utf-8") as outfile:
-
-            # ----------------------------------------------------------------
-            # CASO 1: singolo file
-            # ----------------------------------------------------------------
+            # CASO 1: Singolo file
             if os.path.isfile(target):
                 filename = os.path.basename(target)
                 is_db = is_sqlite_database(target)
@@ -501,9 +444,7 @@ def create(
                         outfile.write(content)
                     outfile.write(fmt_file_end(filename))
 
-            # ----------------------------------------------------------------
-            # CASO 2: directory
-            # ----------------------------------------------------------------
+            # CASO 2: Directory
             elif os.path.isdir(target):
                 config = load_config(target)
                 outfile.write(f"# Project Context: {os.path.basename(os.path.abspath(target))}\n\n")
@@ -538,10 +479,6 @@ def create(
                                 focused_tables = extract_focused_tables(fpath, active_focus_patterns)
                                 if focused_tables: is_in_focus = True
 
-                            # Logica di decisione:
-                            # - --all: sempre full content
-                            # - --light: light per tutto, full per file in focus
-                            # - --focus senza altri flag: light/skip per tutto, full per file in focus
                             should_write_full = include_all or is_in_focus
                             should_write_light = light_mode and not should_write_full
 
@@ -570,15 +507,6 @@ def create(
                                 elif should_write_light:
                                     light_output = generate_light_representation(fpath, content)
                                     outfile.write(light_output)
-                                    
-                                    # commento perchè viene mostrato in alto
-                                    # annotazione token reali dopo l'elaborazione
-                                    
-                                    # light_tokens = estimate_tokens_for_content(light_output)
-                                    # raw_tokens = math.ceil(os.path.getsize(fpath) / 4)
-                                    # savings = raw_tokens - light_tokens
-                                    # if savings > 0:
-                                    #     outfile.write(f"\n\n<!-- light: ~{light_tokens}t | raw: ~{raw_tokens}t | saved: ~{savings}t -->")
 
                             outfile.write(fmt_file_end(rel_path))
                             outfile.write(fmt_separator())
@@ -591,6 +519,9 @@ def create(
         console.print(f"\n[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
+# Entry point che usa typer.run per gestire il comando come SINGOLO
+def app():
+    typer.run(main)
 
 if __name__ == "__main__":
     app()
