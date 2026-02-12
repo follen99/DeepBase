@@ -1,0 +1,42 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-9.0.1, pluggy-1.6.0
+rootdir: /home/follen/Documents/git-local/DeepBase
+configfile: pyproject.toml
+collected 8 items
+
+tests/test_suite_python.py F.......                                      [100%]
+
+=================================== FAILURES ===================================
+_____________________ TestPythonSuite.test_basic_structure _____________________
+
+self = <test_suite_python.TestPythonSuite object at 0x7f7c5b0dcd00>
+tmp_path = PosixPath('/tmp/pytest-of-follen/pytest-7/test_basic_structure0')
+
+    def test_basic_structure(self, tmp_path):
+        """Testa che il comando base generi la struttura nel file."""
+        self.create_dummy_python_project(tmp_path)
+    
+        output_file = tmp_path / "llm_context.md"
+    
+        # Passiamo esplicitamente l'output file nel tmp_path
+        result = runner.invoke(test_app, [str(tmp_path), "-o", str(output_file)])
+    
+        assert result.exit_code == 0
+        assert output_file.exists()
+    
+        content = output_file.read_text(encoding="utf-8")
+    
+        # Verifica presenza nell'albero (DENTRO IL FILE, non nello stdout)
+>       assert "main.py" in content
+E       AssertionError: assert 'main.py' in '# Project Context: test_basic_structure0\n\n=========================================================================...==============\n\n> Total Size: 0.20 KB | Est. Tokens: ~52\n📁 test_basic_structure0/\n└── 📁 utils/ (11.2% | ~6t)\n\n\n'
+
+tests/test_suite_python.py:66: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.10/site-packages/typer/main.py:306
+  /home/follen/Documents/git-local/DeepBase/.venv/lib/python3.10/site-packages/typer/main.py:306: PytestCollectionWarning: cannot collect 'test_app' because it is not a function.
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_suite_python.py::TestPythonSuite::test_basic_structure - As...
+==================== 1 failed, 7 passed, 1 warning in 0.17s ====================

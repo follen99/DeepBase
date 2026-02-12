@@ -201,6 +201,16 @@ def _generate_tree_recursive(
                 else:
                     size = raw_size
                 subtree_size += size
+
+                # [FIX] Ripristinate le righe mancanti per stampare il file nell'albero!
+                file_stats = ""
+                if total_project_size > 0 and size > 0:
+                    percent = (size / total_project_size) * 100
+                    token_est = estimate_tokens(size)
+                    file_stats = f" ({percent:.1f}% | {token_est})"
+
+                output_str += f"{prefix}{connector}{icon}{name}{file_stats}\n"
+
             except OSError:
                 pass
 
