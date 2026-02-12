@@ -87,18 +87,33 @@ def estimate_tokens(size_bytes: int) -> str:
 
 def is_significant_file(file_path: str, config: Dict[str, Any], output_file_abs: str = None) -> bool:
     file_name = os.path.basename(file_path)
+    
+    # Check 1: Esclusione del file di output corrente (tramite path assoluto)
     if output_file_abs and os.path.abspath(file_path) == output_file_abs:
         return False
+
+    # Check 2 (NUOVO): Esclusione per nome. 
+    # Se nella cartella target esiste un file che si chiama come il file di output 
+    # (es: "llm_context.md"), lo ignoriamo a prescindere dal path.
+    if output_file_abs and file_name == os.path.basename(output_file_abs):
+        return False
+
+    # Check 3: Esclusione file spazzatura (lockfiles, etc definita in config)
     if file_name in config["ignore_files"]:
         return False
+
+    significant_extensions = config["significant_extensions"]
     
-    if file_name in config["significant_extensions"]: 
+    if file_name in significant_extensions: 
         return True
+        
     _, ext = os.path.splitext(file_path)
-    if ext in config["significant_extensions"]:
+    if ext in significant_extensions:
         return True
+
     if is_sqlite_database(file_path):
         return True
+        
     return False
 
 def calculate_project_stats(root_dir: str, config: Dict[str, Any], output_file_abs: str) -> int:
