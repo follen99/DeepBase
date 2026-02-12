@@ -78,14 +78,65 @@ class ToonVisitor(ast.NodeVisitor):
 
 
 # ---------------------------------------------------------------------------
-# LIGHT VISITOR — solo firme Python (def/async def), niente classi né docstring
+# LIGHT VISITOR — solo firme Python con docstring/commenti iniziali
 # ---------------------------------------------------------------------------
+
+def _extract_module_comments(source: str) -> str:
+    """
+    Estrae i commenti # e la docstring di modulo dalle prime righe del sorgente.
+    Si ferma al primo costrutto non-commento e non-docstring.
+    """
+    lines = []
+    in_docstring = False
+    docstring_char = None
+    source_lines = source.splitlines()
+
+    for line in source_lines:
+        stripped = line.strip()
+
+        # Riga vuota: la includiamo solo se siamo già dentro i commenti iniziali
+        if not stripped:
+            if lines:
+                lines.append("")
+            continue
+
+        # Commenti # semplici
+        if stripped.startswith("#") and not in_docstring:
+            lines.append(line.rstrip())
+            continue
+
+        # Inizio docstring di modulo (""" o ''')
+        if not in_docstring and (stripped.startswith('"""') or stripped.startswith("'''")):
+            docstring_char = stripped[:3]
+            in_docstring = True
+            lines.append(line.rstrip())
+            # Docstring su singola riga
+            rest = stripped[3:]
+            if rest.endswith(docstring_char) and len(rest) >= 3:
+                in_docstring = False
+            continue
+
+        if in_docstring:
+            lines.append(line.rstrip())
+            if stripped.endswith(docstring_char):
+                in_docstring = False
+            continue
+
+        # Qualsiasi altra cosa: fine dell'header
+        break
+
+    # Rimuovi trailing blank lines
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    return "\n".join(lines)
+
 
 class LightVisitor(ast.NodeVisitor):
     """
-    Visita l'AST e produce SOLO le firme dei metodi/funzioni Python,
+    Visita l'AST e produce le firme dei metodi/funzioni Python,
     preservando la corretta indentazione per classi nidificate.
-    Non include docstring, decoratori o corpo della funzione.
+    Include la prima riga di docstring di classi e funzioni come commento.
     """
 
     def __init__(self):
@@ -96,10 +147,16 @@ class LightVisitor(ast.NodeVisitor):
         indent = "    " * self.indent_level
         self.output.append(f"{indent}{text}")
 
-    # Entra nelle classi per mantenere la gerarchia, ma non le stampa
     def visit_ClassDef(self, node):
         self._log(f"class {node.name}:")
         self.indent_level += 1
+
+        # Docstring della classe (prima riga)
+        docstring = ast.get_docstring(node)
+        if docstring:
+            first_line = docstring.split('\n')[0].strip()
+            self._log(f'"""{first_line}"""')
+
         self.generic_visit(node)
         self.indent_level -= 1
 
@@ -116,7 +173,6 @@ class LightVisitor(ast.NodeVisitor):
         # --- Argomenti con annotazioni di tipo ---
         args_parts = []
 
-        # Calcola l'offset per i default (i default si applicano agli ultimi N args)
         all_args = node.args.args
         defaults = node.args.defaults
         defaults_offset = len(all_args) - len(defaults)
@@ -125,7 +181,6 @@ class LightVisitor(ast.NodeVisitor):
             arg_str = arg.arg
             if arg.annotation:
                 arg_str += f": {ast.unparse(arg.annotation)}"
-            # Default value
             default_idx = i - defaults_offset
             if default_idx >= 0:
                 default_val = ast.unparse(defaults[default_idx])
@@ -173,6 +228,14 @@ class LightVisitor(ast.NodeVisitor):
                 pass
 
         self._log(f"{prefix}def {node.name}({args_str}){ret_anno}: ...")
+
+        # Docstring della funzione (prima riga, indentata sotto la firma)
+        docstring = ast.get_docstring(node)
+        if docstring:
+            first_line = docstring.split('\n')[0].strip()
+            self.indent_level += 1
+            self._log(f'"""{first_line}"""')
+            self.indent_level -= 1
 
     def generic_visit(self, node):
         for child in ast.iter_child_nodes(node):
@@ -344,7 +407,8 @@ def generate_toon_representation(file_path: str, content: str) -> str:
 def generate_light_representation(file_path: str, content: str) -> str:
     """
     Genera una rappresentazione LIGHT: solo le firme dei metodi/funzioni.
-    Per file Python: usa LightVisitor (def/async def con tipi, niente corpo).
+    Per file Python: usa LightVisitor (def/async def con tipi, niente corpo)
+    preceduto dai commenti/docstring di modulo iniziali.
     Per altri tipi di file: delega alla rappresentazione TOON standard,
     perché per file non-Python non c'è distinzione tra "firma" e "scheletro".
     """
@@ -356,19 +420,27 @@ def generate_light_representation(file_path: str, content: str) -> str:
     if is_sqlite_database(file_path):
         return _handle_database_toon(file_path)
 
-    # PYTHON: usa il LightVisitor per le sole firme
+    # PYTHON: commenti di modulo + firme via LightVisitor
     if ext == ".py":
         try:
             tree = ast.parse(content)
             visitor = LightVisitor()
             visitor.visit(tree)
-            result = "\n".join(visitor.output)
-            return result if result.strip() else f"(No functions or classes found in {filename})"
+            signatures = "\n".join(visitor.output)
+
+            # Prepend commenti/docstring iniziali del modulo (se presenti)
+            module_header = _extract_module_comments(content)
+            if module_header:
+                result = module_header + "\n\n" + signatures
+            else:
+                result = signatures
+
+            return result.strip() or f"(No functions or classes found in {filename})"
         except SyntaxError:
             return f"(Syntax Error parsing {filename})"
 
     # Tutti gli altri tipi: delega al TOON standard
-    # (markdown → headers, toml → chiavi, json → struttura, ecc.)
+    # (markdown -> headers, toml -> chiavi, json -> struttura, ecc.)
     return generate_toon_representation(file_path, content)
 
 
