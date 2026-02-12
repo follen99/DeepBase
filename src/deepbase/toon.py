@@ -1,4 +1,4 @@
-# src/deepbase/toon.py (AGGIORNAMENTO)
+# src/deepbase/toon.py
 
 import ast
 import os
@@ -7,12 +7,16 @@ import json
 
 # Import database handling
 from deepbase.database import (
-    get_database_schema, 
+    get_database_schema,
     generate_database_context_toon,
     generate_database_context_hybrid,
     is_sqlite_database
 )
 
+
+# ---------------------------------------------------------------------------
+# TOON VISITOR — mantiene classi + firme + docstring (comportamento originale)
+# ---------------------------------------------------------------------------
 
 class ToonVisitor(ast.NodeVisitor):
     def __init__(self):
@@ -27,13 +31,13 @@ class ToonVisitor(ast.NodeVisitor):
         bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
         base_str = f"({', '.join(bases)})" if bases else ""
         self._log(f"C: {node.name}{base_str}")
-        
+
         self.indent_level += 1
         docstring = ast.get_docstring(node)
         if docstring:
             short_doc = docstring.split('\n')[0].strip()
             self._log(f"\"\"\"{short_doc}...\"\"\"")
-        
+
         self.generic_visit(node)
         self.indent_level -= 1
 
@@ -47,19 +51,19 @@ class ToonVisitor(ast.NodeVisitor):
         args = [arg.arg for arg in node.args.args]
         args_str = ", ".join(args)
         prefix = "async " if is_async else ""
-        
+
         ret_anno = ""
         if node.returns:
             try:
                 if isinstance(node.returns, ast.Name):
                     ret_anno = f" -> {node.returns.id}"
                 elif isinstance(node.returns, ast.Constant):
-                     ret_anno = f" -> {node.returns.value}"
-            except:
+                    ret_anno = f" -> {node.returns.value}"
+            except Exception:
                 pass
 
         self._log(f"{prefix}F: {node.name}({args_str}){ret_anno}")
-        
+
         docstring = ast.get_docstring(node)
         if docstring:
             self.indent_level += 1
@@ -73,7 +77,112 @@ class ToonVisitor(ast.NodeVisitor):
                 self.visit(child)
 
 
-# --- Gestori per file Non-Python ---
+# ---------------------------------------------------------------------------
+# LIGHT VISITOR — solo firme Python (def/async def), niente classi né docstring
+# ---------------------------------------------------------------------------
+
+class LightVisitor(ast.NodeVisitor):
+    """
+    Visita l'AST e produce SOLO le firme dei metodi/funzioni Python,
+    preservando la corretta indentazione per classi nidificate.
+    Non include docstring, decoratori o corpo della funzione.
+    """
+
+    def __init__(self):
+        self.output = []
+        self.indent_level = 0
+
+    def _log(self, text):
+        indent = "    " * self.indent_level
+        self.output.append(f"{indent}{text}")
+
+    # Entra nelle classi per mantenere la gerarchia, ma non le stampa
+    def visit_ClassDef(self, node):
+        self._log(f"class {node.name}:")
+        self.indent_level += 1
+        self.generic_visit(node)
+        self.indent_level -= 1
+
+    def visit_FunctionDef(self, node):
+        self._emit_signature(node, is_async=False)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._emit_signature(node, is_async=True)
+
+    def _emit_signature(self, node, is_async: bool):
+        """Emette la firma completa della funzione/metodo in stile Python."""
+        prefix = "async " if is_async else ""
+
+        # --- Argomenti con annotazioni di tipo ---
+        args_parts = []
+
+        # Calcola l'offset per i default (i default si applicano agli ultimi N args)
+        all_args = node.args.args
+        defaults = node.args.defaults
+        defaults_offset = len(all_args) - len(defaults)
+
+        for i, arg in enumerate(all_args):
+            arg_str = arg.arg
+            if arg.annotation:
+                arg_str += f": {ast.unparse(arg.annotation)}"
+            # Default value
+            default_idx = i - defaults_offset
+            if default_idx >= 0:
+                default_val = ast.unparse(defaults[default_idx])
+                arg_str += f" = {default_val}"
+            args_parts.append(arg_str)
+
+        # *args
+        if node.args.vararg:
+            va = node.args.vararg
+            va_str = f"*{va.arg}"
+            if va.annotation:
+                va_str += f": {ast.unparse(va.annotation)}"
+            args_parts.append(va_str)
+
+        # keyword-only args
+        kwonly_defaults = {
+            i: node.args.kw_defaults[i]
+            for i in range(len(node.args.kwonlyargs))
+            if node.args.kw_defaults[i] is not None
+        }
+        for i, kwarg in enumerate(node.args.kwonlyargs):
+            kw_str = kwarg.arg
+            if kwarg.annotation:
+                kw_str += f": {ast.unparse(kwarg.annotation)}"
+            if i in kwonly_defaults:
+                kw_str += f" = {ast.unparse(kwonly_defaults[i])}"
+            args_parts.append(kw_str)
+
+        # **kwargs
+        if node.args.kwarg:
+            kwa = node.args.kwarg
+            kwa_str = f"**{kwa.arg}"
+            if kwa.annotation:
+                kwa_str += f": {ast.unparse(kwa.annotation)}"
+            args_parts.append(kwa_str)
+
+        args_str = ", ".join(args_parts)
+
+        # --- Tipo di ritorno ---
+        ret_anno = ""
+        if node.returns:
+            try:
+                ret_anno = f" -> {ast.unparse(node.returns)}"
+            except Exception:
+                pass
+
+        self._log(f"{prefix}def {node.name}({args_str}){ret_anno}: ...")
+
+    def generic_visit(self, node):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.visit(child)
+
+
+# ---------------------------------------------------------------------------
+# Gestori per file Non-Python
+# ---------------------------------------------------------------------------
 
 def _handle_markdown(content: str) -> str:
     """Estrae solo gli header Markdown."""
@@ -93,11 +202,8 @@ def _handle_toml_ini(content: str) -> str:
         clean = line.strip()
         if not clean or clean.startswith("#"):
             continue
-        
-        # Mantiene le sezioni [Project]
         if clean.startswith("[") and clean.endswith("]"):
             lines.append(clean)
-        # Mantiene le chiavi (key = value), semplificando il valore
         elif "=" in clean:
             key = clean.split("=")[0].strip()
             lines.append(f"{key} = ...")
@@ -120,7 +226,7 @@ def _handle_json_structure(content: str) -> str:
             lines.append("}")
             return "\n".join(lines)
         return "(JSON Array or Scalar)"
-    except:
+    except Exception:
         return "(Invalid JSON content)"
 
 
@@ -129,10 +235,8 @@ def _handle_minified_config(content: str) -> str:
     lines = []
     for line in content.splitlines():
         clean = line.strip()
-        # Ignora righe vuote e commenti
         if clean and not clean.startswith("#"):
             lines.append(clean)
-    
     if not lines:
         return "(Empty or comments-only file)"
     return "\n".join(lines)
@@ -144,30 +248,25 @@ def _handle_latex_structure(content: str) -> str:
     Rimuove il testo semplice.
     """
     keep_patterns = [
-        r'^\s*\\documentclass',       # Tipo documento
-        r'^\s*\\usepackage',          # Dipendenze
-        r'^\s*\\input',               # Inclusioni file
-        r'^\s*\\include',             # Inclusioni file
-        r'^\s*\\(part|chapter|section|subsection|subsubsection)', # Struttura
-        r'^\s*\\begin',               # Inizio blocchi (figure, table, document)
-        r'^\s*\\end',                 # Fine blocchi
+        r'^\s*\\documentclass',
+        r'^\s*\\usepackage',
+        r'^\s*\\input',
+        r'^\s*\\include',
+        r'^\s*\\(part|chapter|section|subsection|subsubsection)',
+        r'^\s*\\begin',
+        r'^\s*\\end',
         r'^\s*\\title',
         r'^\s*\\author',
         r'^\s*\\date'
     ]
-    
     combined_pattern = re.compile('|'.join(keep_patterns))
     lines = []
-    
     for line in content.splitlines():
-        # Rimuove commenti
         line = line.split('%')[0].rstrip()
         if combined_pattern.match(line):
             lines.append(line)
-            
     if not lines:
         return "(LaTeX content empty or purely textual)"
-        
     return "\n".join(lines)
 
 
@@ -182,19 +281,22 @@ def _handle_database_toon(file_path: str) -> str:
     return "(Not a valid SQLite database)"
 
 
+# ---------------------------------------------------------------------------
+# Funzione pubblica principale — TOON (skeleton completo)
+# ---------------------------------------------------------------------------
+
 def generate_toon_representation(file_path: str, content: str) -> str:
     """
     Genera una rappresentazione TOON (Token Oriented) in base al tipo di file.
+    Include classi, firme e docstring.
     """
     _, ext = os.path.splitext(file_path)
     filename = os.path.basename(file_path)
     ext = ext.lower()
 
-    # 0. DATABASE (check prima per magic bytes, indipendentemente dall'estensione)
     if is_sqlite_database(file_path):
         return _handle_database_toon(file_path)
 
-    # 1. PYTHON
     if ext == ".py":
         try:
             tree = ast.parse(content)
@@ -203,42 +305,31 @@ def generate_toon_representation(file_path: str, content: str) -> str:
             return "\n".join(visitor.output)
         except SyntaxError:
             return f"(Syntax Error parsing {filename})"
-    
-    # 2. MARKDOWN (Documentazione)
+
     elif ext in [".md", ".markdown"]:
         return _handle_markdown(content)
-    
-    # --- 2.5 LATEX ---
+
     elif ext in [".tex", ".sty", ".cls"]:
         return _handle_latex_structure(content)
 
-    # 3. CONFIGURAZIONE STRUTTURATA (TOML, INI, CFG)
     elif ext in [".toml", ".ini", ".cfg"]:
         return _handle_toml_ini(content)
 
-    # 4. DATI (JSON)
     elif ext == ".json":
         return _handle_json_structure(content)
 
-    # 5. CONFIGURAZIONE A LISTA (.gitignore, requirements.txt, .env)
-    # Lista di file noti per essere liste di regole
     elif ext in [".txt", ".dockerignore", ".gitignore"] or filename in [".gitignore", ".dockerignore", "Dockerfile", "Makefile"]:
         return _handle_minified_config(content)
 
-    # 6. YAML (Struttura semplice basata su indentazione)
     elif ext in [".yml", ".yaml"]:
-        # Per YAML facciamo un filtro semplice regex per mostrare solo le chiavi
         lines = [line for line in content.splitlines() if ":" in line and not line.strip().startswith("#")]
-        # Semplificazione brutale: mostra solo le chiavi
         clean_lines = []
         for l in lines:
             key = l.split(":")[0]
             clean_lines.append(f"{key}:")
         return "\n".join(clean_lines)
 
-    # 7. DEFAULT: Fallback minificato (o troncato)
     else:
-        # Se non conosciamo il file, mostriamo le prime 5 righe minificate come anteprima
         minified = _handle_minified_config(content)
         lines = minified.splitlines()
         if len(lines) > 10:
@@ -246,18 +337,59 @@ def generate_toon_representation(file_path: str, content: str) -> str:
         return minified
 
 
+# ---------------------------------------------------------------------------
+# Funzione pubblica principale — LIGHT (solo firme)
+# ---------------------------------------------------------------------------
+
+def generate_light_representation(file_path: str, content: str) -> str:
+    """
+    Genera una rappresentazione LIGHT: solo le firme dei metodi/funzioni.
+    Per file Python: usa LightVisitor (def/async def con tipi, niente corpo).
+    Per altri tipi di file: delega alla rappresentazione TOON standard,
+    perché per file non-Python non c'è distinzione tra "firma" e "scheletro".
+    """
+    _, ext = os.path.splitext(file_path)
+    filename = os.path.basename(file_path)
+    ext = ext.lower()
+
+    # DATABASE: stessa logica TOON (schema compatto)
+    if is_sqlite_database(file_path):
+        return _handle_database_toon(file_path)
+
+    # PYTHON: usa il LightVisitor per le sole firme
+    if ext == ".py":
+        try:
+            tree = ast.parse(content)
+            visitor = LightVisitor()
+            visitor.visit(tree)
+            result = "\n".join(visitor.output)
+            return result if result.strip() else f"(No functions or classes found in {filename})"
+        except SyntaxError:
+            return f"(Syntax Error parsing {filename})"
+
+    # Tutti gli altri tipi: delega al TOON standard
+    # (markdown → headers, toml → chiavi, json → struttura, ecc.)
+    return generate_toon_representation(file_path, content)
+
+
+# ---------------------------------------------------------------------------
+# Helper per database in focus mode (usato da main.py)
+# ---------------------------------------------------------------------------
+
 def generate_database_focused(file_path: str, focused_tables: list = None) -> str:
     """
     Generate database context with specific tables in full detail.
     Used when database is in focus mode.
     """
+    from deepbase.database import generate_database_context_full, generate_database_context_hybrid
+
     if not is_sqlite_database(file_path):
         return "(Not a valid SQLite database)"
-    
+
     try:
         schema = get_database_schema(file_path)
         db_name = os.path.basename(file_path)
-        
+
         if focused_tables:
             return generate_database_context_hybrid(schema, db_name, focused_tables)
         else:
