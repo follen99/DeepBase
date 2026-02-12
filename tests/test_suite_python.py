@@ -4,6 +4,7 @@ import os
 import typer
 from typer.testing import CliRunner
 from deepbase.main import main
+import sqlite3
 
 # Creiamo un'app Typer temporanea per il testing
 test_app = typer.Typer()
@@ -173,3 +174,47 @@ class MyClass:
         result = runner.invoke(test_app, ["/percorso/inesistente/assoluto"])
         assert result.exit_code == 1
         assert "Target not found" in result.stdout
+        
+    def test_database_handling(self, tmp_path):
+        """Testa il supporto per database SQLite (schema extraction e light mode)."""
+        import sqlite3  # Import necessario qui o in cima al file
+
+        # Creiamo una cartella e un DB reale
+        project_dir = tmp_path / "db_project"
+        project_dir.mkdir()
+        db_path = project_dir / "test_db.sqlite"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)")
+        cursor.execute("CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, content TEXT)")
+        conn.commit()
+        conn.close()
+
+        output_file = project_dir / "context.md"
+
+        # 1. Test Full Mode (--all) -> Deve mostrare schema dettagliato
+        result = runner.invoke(test_app, [str(project_dir), "--all", "-o", str(output_file)])
+        assert result.exit_code == 0
+        content = output_file.read_text(encoding="utf-8")
+
+        # Verifica che il DB sia stato processato
+        assert "test_db.sqlite" in content
+        
+        # Verifica il contenuto generato da generate_database_context_full
+        # Nota: "DATABASE SCHEMA" appare solo in single-file mode, qui cerchiamo il contenuto reale
+        assert "Table: `users`" in content
+        # Verifica parziale di una colonna per assicurarsi che lo schema sia stato letto
+        assert "username" in content
+        assert "TEXT" in content
+
+        # 2. Test Light Mode (--light) -> Deve mostrare schema compatto (TOON)
+        result = runner.invoke(test_app, [str(project_dir), "--light", "-o", str(output_file)])
+        assert result.exit_code == 0
+        content = output_file.read_text(encoding="utf-8")
+        
+        # Verifica firma compatta (TOON)
+        # Cerca la definizione della tabella users e la colonna id
+        assert "users" in content
+        # Verifica formato TOON: nome:tipo
+        assert "id:INTEGER" in content
