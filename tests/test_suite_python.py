@@ -210,3 +210,56 @@ Text that should be removed in light mode.
         
         content = output_file.read_text(encoding="utf-8")
         assert "script.js" not in content
+        
+
+    def test_javascript_react_parsing(self, tmp_path):
+        """Testa il parsing di file JS, TS e React (JSX/TSX)."""
+        self.create_dummy_project(tmp_path)
+        
+        # Crea un componente React Native finto
+        rn_file = tmp_path / "App.tsx"
+        rn_file.write_text("""
+import React, { useEffect } from 'react';
+import { View, Text } from 'react-native';
+
+/**
+ * Componente principale
+ */
+export const App = (props: Props) => {
+    useEffect(() => {
+        console.log("Effect");
+    }, []);
+
+    const helper = () => true;
+
+    return (
+        <View>
+            <Text>Hello</Text>
+        </View>
+    );
+};
+
+export default class ErrorBoundary extends React.Component {
+    render() {
+        return null;
+    }
+}
+""", encoding="utf-8")
+
+        output_file = tmp_path / "context.md"
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        
+        content = output_file.read_text(encoding="utf-8")
+        
+        # Verifica Componente Funzionale
+        assert "export const App = (props: Props) => { ... }" in content
+        
+        # Verifica Commento JSDoc
+        assert "Componente principale" in content
+        
+        # Verifica Classe
+        assert "export default class ErrorBoundary extends React.Component { ... }" in content
+        
+        # Verifica che il corpo (useEffect, JSX) sia nascosto
+        assert "console.log" not in content
+        assert "<View>" not in content

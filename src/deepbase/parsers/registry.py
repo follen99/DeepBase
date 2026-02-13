@@ -3,7 +3,8 @@ import os
 from typing import Dict, Set
 from .interface import LanguageParser
 from .python import PythonParser
-from .document import MarkdownParser, LatexParser  # <--- Importa i nuovi parser
+from .javascript import JavaScriptParser  # <--- NUOVO IMPORT
+from .document import MarkdownParser, LatexParser
 from .fallback import FallbackParser
 
 class ParserRegistry:
@@ -12,10 +13,16 @@ class ParserRegistry:
         self._fallback = FallbackParser()
         self._unsupported_extensions_encountered: Set[str] = set()
         
-        # Registrazione parser
+        # --- Python ---
         self.register_parser('.py', PythonParser())
         
-        # Registrazione Documenti
+        # --- JavaScript / TypeScript / React Native ---
+        js_parser = JavaScriptParser()
+        # Copre tutto l'ecosistema React/Node/TS
+        for ext in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']:
+            self.register_parser(ext, js_parser)
+        
+        # --- Documentazione ---
         md_parser = MarkdownParser()
         self.register_parser('.md', md_parser)
         self.register_parser('.markdown', md_parser)
