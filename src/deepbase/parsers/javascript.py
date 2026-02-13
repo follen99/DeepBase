@@ -5,41 +5,40 @@ from .interface import LanguageParser
 class JavaScriptParser(LanguageParser):
     """
     Parser per JavaScript, TypeScript e React Native (.js, .jsx, .ts, .tsx).
-    Usa regex per identificare firme di funzioni, classi, interfacce e componenti React.
+    Versione 1.1: Logica Regex base + Supporto Export Default.
     """
 
     def parse(self, content: str, file_path: str) -> str:
         lines = []
         
-        # Regex patterns per catturare le definizioni
+        # Regex patterns per catturare le definizioni strutturali (classi, funzioni, var, tipi)
         patterns = [
-            # Class definition (es. export default class MyClass extends Component)
+            # Class definition
             re.compile(r'^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+([a-zA-Z0-9_]+)(.*)?\{'),
             
-            # Function definition standard (es. async function myFunc(a, b))
+            # Function definition standard
             re.compile(r'^\s*(export\s+)?(default\s+)?(async\s+)?function\s+([a-zA-Z0-9_]+)\s*\(.*'),
             
-            # Arrow Function / Variable Assignments (es. const MyComponent = (props) => {)
-            # Cattura costanti che sembrano funzioni o componenti React
+            # Arrow Function / Variable Assignments
             re.compile(r'^\s*(export\s+)?(const|let|var)\s+([a-zA-Z0-9_]+)\s*=\s*(async\s*)?(\(.*\)|[^=]+)\s*=>.*'),
             
             # TypeScript Interfaces & Types
             re.compile(r'^\s*(export\s+)?(interface|type)\s+([a-zA-Z0-9_]+).*'),
-            
-            # React Hooks (opzionale: spesso sono implementation details, 
-            # ma custom hooks 'useSomething' top-level potrebbero essere rilevanti. 
-            # Per ora li ignoriamo per risparmiare token, tenendo solo le definizioni)
         ]
 
-        # JSDoc pattern (multiline)
+        # --- NEW: Regex specifica per Export Default diretto (V2 Feature) ---
+        # Cattura: export default router; | export default MyComponent;
+        # Il (?!...) assicura che non catturi "class" o "function" che sono gestiti meglio dai pattern sopra.
+        re_export_default = re.compile(r'^\s*export\s+default\s+(?!class|function)([a-zA-Z0-9_]+);?')
+
+        # JSDoc pattern
         in_comment = False
-        
         source_lines = content.splitlines()
         
         for i, line in enumerate(source_lines):
             stripped = line.strip()
             
-            # Gestione commenti JSDoc /** ... */
+            # Gestione commenti JSDoc
             if stripped.startswith("/**"):
                 in_comment = True
                 lines.append(stripped)
@@ -57,24 +56,28 @@ class JavaScriptParser(LanguageParser):
             if not stripped or stripped.startswith("//"):
                 continue
 
-            # Verifica se la riga matcha una definizione importante
+            # --- NEW: Controllo Export Default ---
+            # Se è un export default semplice, lo aggiungiamo così com'è (senza { ... })
+            if re_export_default.match(stripped):
+                lines.append(stripped)
+                continue
+
+            # Verifica patterns standard
             is_match = False
             for pattern in patterns:
-                # Usiamo match sulla riga pulita o search per flessibilità
                 if pattern.match(stripped):
                     # Pulizia fine riga: se finisce con '{', lo sostituiamo con '...'
                     clean_line = stripped
                     if clean_line.endswith("{"):
                         clean_line = clean_line[:-1].strip()
                     
-                    # Aggiunge firma + ...
+                    # Aggiunge firma + { ... } per indicare struttura compressa
                     lines.append(f"{clean_line} {{ ... }}")
                     is_match = True
                     break
             
-            # Fallback per decoratori (es. @Component in Angular o NestJS, usati anche in RN con mobx)
+            # Fallback per decoratori
             if not is_match and stripped.startswith("@"):
-                # Mantiene il decoratore se è seguito da una classe nella riga successiva (euristica semplice)
                 if i + 1 < len(source_lines) and "class " in source_lines[i+1]:
                     lines.append(stripped)
 
