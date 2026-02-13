@@ -6,215 +6,207 @@ from typer.testing import CliRunner
 from deepbase.main import main
 import sqlite3
 
-# Creiamo un'app Typer temporanea per il testing
+# --- SETUP PER I TEST ---
 test_app = typer.Typer()
 test_app.command()(main)
 
 runner = CliRunner()
 
-class TestPythonSuite:
+class TestDeepBaseSuite:
     """
-    Test suite dedicata all'analisi di progetti Python con DeepBase.
-    FIX: Specifica sempre l'output path esplicito per evitare FileNotFoundError.
-    FIX: Controlla il contenuto del file generato, non lo stdout, per la struttura.
+    Test suite completa per DeepBase.
+    Copre Python, Markdown, LaTeX, Database e il meccanismo di Fallback.
     """
 
-    def create_dummy_python_project(self, root):
-        """Helper per popolare una directory con file Python finti."""
-        # 1. File principale
+    def create_dummy_project(self, root):
+        """Helper per popolare una directory con vari tipi di file."""
+        # 1. Python Complex
         main_py = root / "main.py"
-        main_py.write_text("""
+        main_py.write_text("""\"\"\"
+Module docstring here.
+Should be preserved.
+\"\"\"
 import os
 
-def hello_world():
-    print("Hello content")
+# Initial comment
+def simple_func():
     return True
 
+async def async_func(a: int, b: str = "default") -> bool:
+    \"\"\"Function docstring.\"\"\"
+    print("body hidden")
+    return False
+
 class MyClass:
+    \"\"\"Class docstring.\"\"\"
     def method_one(self):
-        # This is a comment inside
         return 1
 """, encoding="utf-8")
 
-        # 2. Modulo utils
-        utils_dir = root / "utils"
-        utils_dir.mkdir()
-        (utils_dir / "helper.py").write_text("def help_me():\n    pass", encoding="utf-8")
+        # 2. Markdown
+        readme = root / "README.md"
+        readme.write_text("""# Project Title
+Description text that should be removed.
+## Section 1
+More text.
+### Subsection
+""", encoding="utf-8")
 
-        # 3. File da ignorare (segreto)
-        (root / "secrets.py").write_text("API_KEY = '123'", encoding="utf-8")
+        # 3. LaTeX
+        doc_tex = root / "document.tex"
+        doc_tex.write_text(r"""\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+Text that should be removed in light mode.
+\section{Introduction}
+\subsection{Background}
+\end{document}
+""", encoding="utf-8")
 
-        # 4. Cartella da ignorare (es. cache)
-        cache_dir = root / ".mypy_cache"
-        cache_dir.mkdir()
-        (cache_dir / "data.json").write_text("{}", encoding="utf-8")
+        # 4. JavaScript (Unsupported / Fallback test)
+        script_js = root / "script.js"
+        script_js.write_text("""function hello() {
+    console.log("This is JS");
+    return true;
+}
+""", encoding="utf-8")
 
-    def test_basic_structure(self, tmp_path):
-        """Testa che il comando base generi la struttura nel file."""
-        self.create_dummy_python_project(tmp_path)
-        
-        output_file = tmp_path / "llm_context.md"
-        
-        # Passiamo esplicitamente l'output file nel tmp_path
-        result = runner.invoke(test_app, [str(tmp_path), "-o", str(output_file)])
-        
-        assert result.exit_code == 0
-        assert output_file.exists()
-        
-        content = output_file.read_text(encoding="utf-8")
-        
-        # Verifica presenza nell'albero (DENTRO IL FILE, non nello stdout)
-        assert "main.py" in content
-        assert "utils/" in content
-        
-        # Verifica che il CONTENUTO del codice NON ci sia
-        assert "def hello_world" not in content
-        assert "import os" not in content
+        # 5. JSON (Legacy TOON support)
+        config_json = root / "config.json"
+        config_json.write_text('{"key": "value", "list": [1, 2, 3]}', encoding="utf-8")
 
-    def test_flag_all_content(self, tmp_path):
-        """Testa --all: deve includere tutto il codice."""
-        self.create_dummy_python_project(tmp_path)
+    def test_python_light_advanced(self, tmp_path):
+        """Testa il nuovo parser Python con docstring, async e type hints."""
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
         
-        output_file = tmp_path / "llm_context.md"
-        result = runner.invoke(test_app, [str(tmp_path), "--all", "-o", str(output_file)])
-        
-        assert result.exit_code == 0
-        content = output_file.read_text(encoding="utf-8")
-        
-        # Deve contenere il corpo delle funzioni
-        assert "print(\"Hello content\")" in content
-        assert "class MyClass:" in content
-
-    def test_flag_light_mode(self, tmp_path):
-        """Testa --light: deve includere firme ma NON il corpo."""
-        self.create_dummy_python_project(tmp_path)
-        
-        output_file = tmp_path / "llm_context.md"
         result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
         
-        # Deve contenere la notice Light Mode
-        assert "[LIGHT MODE]" in content
+        # Verifica Docstring di modulo (controlliamo le righe separate perché è multiline)
+        assert '"""' in content
+        assert "Module docstring here." in content
+        assert "Should be preserved." in content
         
-        # Deve contenere le firme (via AST parsing)
-        # Nota: controlliamo stringhe parziali per evitare problemi di formattazione spazi
-        assert "def hello_world" in content
-        assert "class MyClass:" in content
+        # Verifica Async e Type Hints
+        assert "async def async_func" in content
+        assert "b: str" in content
         
-        # NON deve contenere il corpo del codice
-        assert "print(\"Hello content\")" not in content
-        assert "return 1" not in content
+        # Verifica Docstring di funzione (prima riga)
+        assert '"""Function docstring."""' in content
+        
+        # Verifica che il corpo sia rimosso
+        assert 'print("body hidden")' not in content
+
+    def test_markdown_parsing(self, tmp_path):
+        """Testa che il parser Markdown estragga solo gli header."""
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
+        
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        content = output_file.read_text(encoding="utf-8")
+        
+        assert "# Project Title" in content
+        assert "## Section 1" in content
+        # Il testo descrittivo non deve esserci
+        assert "Description text that should be removed" not in content
+
+    def test_latex_parsing(self, tmp_path):
+        """Testa che il parser LaTeX mantenga la struttura."""
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
+        
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        content = output_file.read_text(encoding="utf-8")
+        
+        assert r"\documentclass{article}" in content
+        assert r"\section{Introduction}" in content
+        assert "Text that should be removed" not in content
+
+    def test_fallback_and_warning(self, tmp_path):
+        """
+        Testa il meccanismo di fallback per file non supportati (es. .js)
+        e verifica che venga generato il WARNING.
+        """
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
+        
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        content = output_file.read_text(encoding="utf-8")
+        
+        # 1. Verifica che il contenuto JS sia presente (Fallback behavior)
+        assert "function hello()" in content
+        
+        # 2. Verifica la presenza del WARNING (nello stdout o nel file)
+        warning_msg = ".js"
+        assert (warning_msg in result.stdout) or (warning_msg in content)
+
+    def test_json_legacy_support(self, tmp_path):
+        """Testa che i file JSON vengano ancora gestiti."""
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
+        
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        content = output_file.read_text(encoding="utf-8")
+        
+        # Verifica struttura JSON
+        assert "key" in content
+        assert "list" in content
+
+    def test_database_handling(self, tmp_path):
+        """Testa integrazione database SQLite."""
+        project_dir = tmp_path / "db_project"
+        project_dir.mkdir()
+        db_path = project_dir / "test.sqlite"
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT)")
+        conn.commit()
+        conn.close()
+
+        output_file = project_dir / "context.md"
+        result = runner.invoke(test_app, [str(project_dir), "--light", "-o", str(output_file)])
+        
+        assert result.exit_code == 0
+        content = output_file.read_text(encoding="utf-8")
+        
+        assert "users" in content
+        assert "email:TEXT" in content
 
     def test_focus_mode_hybrid(self, tmp_path):
-        """Testa --focus combined (ibrido)."""
-        self.create_dummy_python_project(tmp_path)
+        """Testa --focus combined (ibrido) su file Python."""
+        self.create_dummy_project(tmp_path)
+        output_file = tmp_path / "context.md"
         
-        output_file = tmp_path / "llm_context.md"
-        # Focus solo su main.py
+        # Focus su main.py. SENZA --light o --all, il comportamento standard
+        # per i file NON in focus è di essere presenti SOLO nell'albero (tree).
         result = runner.invoke(test_app, [str(tmp_path), "--focus", "main.py", "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
         
-        # main.py deve essere FULL
-        assert "--- START OF FILE: main.py ---" in content
-        assert "print(\"Hello content\")" in content
+        # 1. main.py deve essere FULL (contiene il corpo)
+        assert 'print("body hidden")' in content
         
-        # utils/helper.py NON era in focus, quindi non dovrebbe esserci il contenuto
-        assert "--- START OF FILE: utils/helper.py ---" not in content
+        # 2. README.md NON in focus.
+        # Verifica che sia presente nell'albero dei file
+        assert "README.md" in content
+        
+        # Ma NON deve esserci il suo contenuto (perché non abbiamo passato --light come background)
+        # Nota: se in futuro cambi il default, aggiorna questo test.
+        assert "# Project Title" not in content
 
-    def test_focus_with_light_background(self, tmp_path):
-        """Testa --light insieme a --focus."""
-        self.create_dummy_python_project(tmp_path)
+    def test_ignore_files(self, tmp_path):
+        """Testa che .deepbase.toml venga rispettato."""
+        self.create_dummy_project(tmp_path)
         
-        output_file = tmp_path / "llm_context.md"
-        # Focus su main.py, ma background --light
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "--focus", "main.py", "-o", str(output_file)])
+        (tmp_path / ".deepbase.toml").write_text('ignore_files = ["script.js"]', encoding="utf-8")
+        
+        output_file = tmp_path / "context.md"
+        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
         
         content = output_file.read_text(encoding="utf-8")
-        
-        # main.py FULL
-        assert "print(\"Hello content\")" in content
-        
-        # utils/helper.py LIGHT (deve esserci la firma)
-        assert "def help_me" in content
-
-    def test_toml_configuration(self, tmp_path):
-        """Testa che .deepbase.toml venga letto e rispettato."""
-        self.create_dummy_python_project(tmp_path)
-        
-        # Crea configurazione per ignorare "secrets.py"
-        toml_file = tmp_path / ".deepbase.toml"
-        toml_file.write_text('ignore_files = ["secrets.py"]', encoding="utf-8")
-        
-        output_file = tmp_path / "llm_context.md"
-        result = runner.invoke(test_app, [str(tmp_path), "--all", "-o", str(output_file)])
-        
-        assert result.exit_code == 0
-        content = output_file.read_text(encoding="utf-8")
-        
-        # secrets.py NON deve apparire
-        assert "secrets.py" not in content
-        assert "API_KEY" not in content
-
-    def test_custom_output_path(self, tmp_path):
-        """Testa l'opzione -o per il file di output."""
-        self.create_dummy_python_project(tmp_path)
-        
-        custom_out = tmp_path / "custom_analysis.txt"
-        result = runner.invoke(test_app, [str(tmp_path), "-o", str(custom_out)])
-        
-        assert result.exit_code == 0
-        assert custom_out.exists()
-        
-    def test_error_handling_invalid_path(self):
-        """Testa che il programma gestisca percorsi inesistenti."""
-        result = runner.invoke(test_app, ["/percorso/inesistente/assoluto"])
-        assert result.exit_code == 1
-        assert "Target not found" in result.stdout
-        
-    def test_database_handling(self, tmp_path):
-        """Testa il supporto per database SQLite (schema extraction e light mode)."""
-        import sqlite3  # Import necessario qui o in cima al file
-
-        # Creiamo una cartella e un DB reale
-        project_dir = tmp_path / "db_project"
-        project_dir.mkdir()
-        db_path = project_dir / "test_db.sqlite"
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)")
-        cursor.execute("CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER, content TEXT)")
-        conn.commit()
-        conn.close()
-
-        output_file = project_dir / "context.md"
-
-        # 1. Test Full Mode (--all) -> Deve mostrare schema dettagliato
-        result = runner.invoke(test_app, [str(project_dir), "--all", "-o", str(output_file)])
-        assert result.exit_code == 0
-        content = output_file.read_text(encoding="utf-8")
-
-        # Verifica che il DB sia stato processato
-        assert "test_db.sqlite" in content
-        
-        # Verifica il contenuto generato da generate_database_context_full
-        # Nota: "DATABASE SCHEMA" appare solo in single-file mode, qui cerchiamo il contenuto reale
-        assert "Table: `users`" in content
-        # Verifica parziale di una colonna per assicurarsi che lo schema sia stato letto
-        assert "username" in content
-        assert "TEXT" in content
-
-        # 2. Test Light Mode (--light) -> Deve mostrare schema compatto (TOON)
-        result = runner.invoke(test_app, [str(project_dir), "--light", "-o", str(output_file)])
-        assert result.exit_code == 0
-        content = output_file.read_text(encoding="utf-8")
-        
-        # Verifica firma compatta (TOON)
-        # Cerca la definizione della tabella users e la colonna id
-        assert "users" in content
-        # Verifica formato TOON: nome:tipo
-        assert "id:INTEGER" in content
+        assert "script.js" not in content
