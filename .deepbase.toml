@@ -13,3 +13,7 @@
 #   ".env.example",
 #   ".customext"
 # ]
+
+ignore_dirs = [
+  "tests"
+]

@@ -49,23 +49,47 @@ console = Console()
 
 # --- UTILS ---
 
-def load_config(root_dir: str) -> Dict[str, Any]:
+def load_config(root_dir: str) -> Tuple[Dict[str, Any], bool, List[str], List[str]]:
+    """
+    Carica la configurazione dal file .deepbase.toml.
+    Ritorna: (config, toml_found, user_ignore_dirs, user_ignore_files)
+    """
     config_path = os.path.join(root_dir, ".deepbase.toml")
     config = DEFAULT_CONFIG.copy()
     config["ignore_dirs"] = set(config["ignore_dirs"])
     config["ignore_files"] = set(config["ignore_files"])
     config["significant_extensions"] = set(config["significant_extensions"])
+    
+    toml_found = False
+    user_ignore_dirs = []
+    user_ignore_files = []
+
+    # DEBUG: stampa dove stiamo cercando
+    console.print(f"[dim]  Looking for config at: {config_path}[/dim]")
+    console.print(f"[dim]  Absolute path: {os.path.abspath(config_path)}[/dim]")
+    console.print(f"[dim]  File exists: {os.path.exists(config_path)}[/dim]")
 
     if os.path.exists(config_path):
+        toml_found = True
         try:
             with open(config_path, "rb") as f:
                 user_config = tomli.load(f)
-            config["ignore_dirs"].update(user_config.get("ignore_dirs", []))
-            config["ignore_files"].update(user_config.get("ignore_files", []))
+            
+            # Salva le configurazioni utente prima di mergiarle
+            user_dirs = user_config.get("ignore_dirs", [])
+            user_files = user_config.get("ignore_files", [])
+            user_ignore_dirs.extend(user_dirs)
+            user_ignore_files.extend(user_files)
+            
+            # Merge con i default
+            config["ignore_dirs"].update(user_dirs)
+            config["ignore_files"].update(user_files)
             config["significant_extensions"].update(user_config.get("significant_extensions", []))
-        except tomli.TOMLDecodeError:
-            pass
-    return config
+            
+        except tomli.TOMLDecodeError as e:
+            console.print(f"[bold yellow]Warning:[/bold yellow] Error parsing '.deepbase.toml': {e}")
+    
+    return config, toml_found, user_ignore_dirs, user_ignore_files
 
 
 def estimate_tokens(size_bytes: int) -> str:
@@ -87,7 +111,79 @@ def calculate_light_tokens(file_path: str, content: str) -> int:
     light_repr = generate_light_representation(file_path, content)
     return estimate_tokens_for_content(light_repr)
 
-def is_significant_file(file_path: str, config: Dict[str, Any], output_file_abs: str = None) -> bool:
+
+def _should_ignore_dir(dir_path: str, root_dir: str, ignore_dirs: Set[str]) -> bool:
+    """
+    Controlla se una directory deve essere ignorata.
+    Supporta:
+    - Nomi semplici (es: "node_modules")
+    - Percorsi relativi dalla root (es: "app/templates")
+    - Wildcard patterns (es: "*.egg-info")
+    """
+    dir_name = os.path.basename(dir_path)
+    rel_path = os.path.relpath(dir_path, root_dir).replace(os.sep, '/')
+    
+    for pattern in ignore_dirs:
+        pattern = pattern.replace(os.sep, '/')
+        
+        # Match esatto nome directory
+        if pattern == dir_name:
+            return True
+        
+        # Match percorso relativo completo
+        if pattern == rel_path:
+            return True
+        
+        # Match wildcard sul nome
+        if fnmatch.fnmatch(dir_name, pattern):
+            return True
+        
+        # Match wildcard sul percorso relativo
+        if fnmatch.fnmatch(rel_path, pattern):
+            return True
+        
+        # Match se il pattern è un prefisso del percorso (per ignorare sotto-directory)
+        # Es: pattern "app/templates" matcha "app/templates" e "app/templates/subdir"
+        if rel_path.startswith(pattern + '/') or rel_path == pattern:
+            return True
+    
+    return False
+
+
+def _should_ignore_file(file_path: str, root_dir: str, ignore_files: Set[str]) -> bool:
+    """
+    Controlla se un file deve essere ignorato.
+    Supporta:
+    - Nomi esatti (es: "secrets.env")
+    - Patterns con wildcard (es: "*.log")
+    - Percorsi relativi dalla root (es: "app/config/local.env")
+    """
+    file_name = os.path.basename(file_path)
+    rel_path = os.path.relpath(file_path, root_dir).replace(os.sep, '/')
+    
+    for pattern in ignore_files:
+        pattern = pattern.replace(os.sep, '/')
+        
+        # Match esatto nome file
+        if pattern == file_name:
+            return True
+        
+        # Match percorso relativo completo
+        if pattern == rel_path:
+            return True
+        
+        # Match wildcard sul nome
+        if fnmatch.fnmatch(file_name, pattern):
+            return True
+        
+        # Match wildcard sul percorso relativo
+        if fnmatch.fnmatch(rel_path, pattern):
+            return True
+    
+    return False
+
+
+def is_significant_file(file_path: str, config: Dict[str, Any], root_dir: str = "", output_file_abs: str = None) -> bool:
     file_name = os.path.basename(file_path)
 
     if output_file_abs and os.path.abspath(file_path) == output_file_abs:
@@ -96,7 +192,10 @@ def is_significant_file(file_path: str, config: Dict[str, Any], output_file_abs:
     if output_file_abs and file_name == os.path.basename(output_file_abs):
         return False
 
-    if file_name in config["ignore_files"]:
+    # Check ignore_files con supporto per percorsi
+    if root_dir and _should_ignore_file(file_path, root_dir, config["ignore_files"]):
+        return False
+    elif file_name in config["ignore_files"]:
         return False
 
     significant_extensions = config["significant_extensions"]
@@ -117,11 +216,18 @@ def is_significant_file(file_path: str, config: Dict[str, Any], output_file_abs:
 def calculate_project_stats(root_dir: str, config: Dict[str, Any], output_file_abs: str, light_mode: bool = False) -> int:
     total_size = 0
     ignore_dirs = config["ignore_dirs"]
+    
     for dirpath, dirnames, filenames in os.walk(root_dir, topdown=True):
-        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
+        # Filtra directory usando la nuova funzione
+        dirnames[:] = [
+            d for d in dirnames 
+            if not _should_ignore_dir(os.path.join(dirpath, d), root_dir, ignore_dirs)
+            and not d.startswith('.')
+        ]
+        
         for f in filenames:
             fpath = os.path.join(dirpath, f)
-            if is_significant_file(fpath, config, output_file_abs):
+            if is_significant_file(fpath, config, root_dir, output_file_abs):
                 try:
                     if light_mode and not is_sqlite_database(fpath):
                         content = read_file_content(fpath)
@@ -140,6 +246,7 @@ def _generate_tree_recursive(
     current_path: str,
     prefix: str,
     config: Dict[str, Any],
+    root_dir: str,
     total_project_size: int,
     output_file_abs: str,
     light_mode: bool = False
@@ -158,10 +265,10 @@ def _generate_tree_recursive(
         is_dir = os.path.isdir(full_path)
 
         if is_dir:
-            if item not in config["ignore_dirs"] and not item.startswith('.'):
+            if not _should_ignore_dir(full_path, root_dir, config["ignore_dirs"]) and not item.startswith('.'):
                 filtered_items.append((item, True))
         else:
-            if is_significant_file(full_path, config, output_file_abs):
+            if is_significant_file(full_path, config, root_dir, output_file_abs):
                 filtered_items.append((item, False))
 
     for i, (name, is_dir) in enumerate(filtered_items):
@@ -175,6 +282,7 @@ def _generate_tree_recursive(
                 full_path,
                 prefix + extension,
                 config,
+                root_dir,
                 total_project_size,
                 output_file_abs
             )
@@ -202,7 +310,6 @@ def _generate_tree_recursive(
                     size = raw_size
                 subtree_size += size
 
-                # [FIX] Ripristinate le righe mancanti per stampare il file nell'albero!
                 file_stats = ""
                 if total_project_size > 0 and size > 0:
                     percent = (size / total_project_size) * 100
@@ -220,7 +327,7 @@ def _generate_tree_recursive(
 def generate_directory_tree(root_dir: str, config: Dict[str, Any], output_file_abs: str, light_mode: bool = False) -> Tuple[str, int, int]:
     abs_root = os.path.abspath(root_dir)
     total_size = calculate_project_stats(root_dir, config, output_file_abs, light_mode)
-    tree_body, _ = _generate_tree_recursive(root_dir, "", config, total_size, output_file_abs, light_mode)
+    tree_body, _ = _generate_tree_recursive(root_dir, "", config, root_dir, total_size, output_file_abs, light_mode)
     header = f"📁 {os.path.basename(abs_root) or '.'}/\n"
     total_tokens_est = math.ceil(total_size / 4)
     return header + tree_body, total_size, total_tokens_est
@@ -231,11 +338,18 @@ def generate_directory_tree(root_dir: str, config: Dict[str, Any], output_file_a
 def get_all_significant_files(root_dir: str, config: Dict[str, Any], output_file_abs: str) -> List[str]:
     significant_files = []
     ignore_dirs = config["ignore_dirs"]
+    
     for dirpath, dirnames, filenames in os.walk(root_dir, topdown=True):
-        dirnames[:] = [d for d in dirnames if d not in ignore_dirs and not d.startswith('.')]
+        # Filtra directory usando la nuova funzione
+        dirnames[:] = [
+            d for d in dirnames 
+            if not _should_ignore_dir(os.path.join(dirpath, d), root_dir, ignore_dirs)
+            and not d.startswith('.')
+        ]
+        
         for filename in sorted(filenames):
             file_path = os.path.join(dirpath, filename)
-            if is_significant_file(file_path, config, output_file_abs):
+            if is_significant_file(file_path, config, root_dir, output_file_abs):
                 significant_files.append(file_path)
     return significant_files
 
@@ -305,6 +419,29 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
+def print_config_info(toml_found: bool, user_ignore_dirs: List[str], user_ignore_files: List[str]):
+    """
+    Stampa informazioni sulla configurazione caricata.
+    """
+    if toml_found:
+        console.print(f"[bold green]✓[/bold green] Configuration file [cyan].deepbase.toml[/cyan] loaded")
+        
+        if user_ignore_dirs:
+            dirs_str = ", ".join(f"[yellow]{d}[/yellow]" for d in user_ignore_dirs)
+            console.print(f"  [dim]Ignored directories:[/dim] {dirs_str}")
+        
+        if user_ignore_files:
+            files_str = ", ".join(f"[yellow]{f}[/yellow]" for f in user_ignore_files)
+            console.print(f"  [dim]Ignored files:[/dim] {files_str}")
+        
+        if not user_ignore_dirs and not user_ignore_files:
+            console.print("  [dim]No custom ignore patterns defined[/dim]")
+    else:
+        console.print(f"[dim]ℹ No .deepbase.toml found, using default configuration[/dim]")
+        console.print(f"  [dim]Default ignored directories: {len(DEFAULT_CONFIG['ignore_dirs'])} patterns[/dim]")
+        console.print(f"  [dim]Default ignored files: {len(DEFAULT_CONFIG['ignore_files'])} patterns[/dim]")
+
+
 # --- LOGICA PRINCIPALE (SENZA CLASSE TYPER) ---
 
 def main(
@@ -355,11 +492,11 @@ def main(
         
         config_content = """Create a [cyan].deepbase.toml[/cyan] in your project root:
 
-[dim]# Ignore additional directories[/dim]
-[yellow]ignore_dirs = ["my_assets", "experimental"][/yellow]
+[dim]# Ignore additional directories (names or relative paths)[/dim]
+[yellow]ignore_dirs = ["my_assets", "app/templates", "experimental"][/yellow]
 
-[dim]# Ignore specific files[/dim]
-[yellow]ignore_files = ["*.log", "secrets.env"][/yellow]
+[dim]# Ignore specific files (names, wildcards, or relative paths)[/dim]
+[yellow]ignore_files = ["*.log", "secrets.env", "app/config/local.env"][/yellow]
 
 [dim]# Add extra file extensions[/dim]
 [yellow]significant_extensions = [".cfg", "Makefile", ".tsx"][/yellow]"""
@@ -403,6 +540,17 @@ def main(
         mode_label = " [bold yellow](LIGHT — signatures only)[/bold yellow]"
     elif include_all:
         mode_label = " [bold cyan](ALL — full content)[/bold cyan]"
+
+    # Carica configurazione e stampa info
+    if os.path.isdir(target):
+        config, toml_found, user_ignore_dirs, user_ignore_files = load_config(target)
+        print_config_info(toml_found, user_ignore_dirs, user_ignore_files)
+    else:
+        # Per singoli file, carica comunque la config dalla directory parent
+        parent_dir = os.path.dirname(os.path.abspath(target)) or "."
+        config, toml_found, user_ignore_dirs, user_ignore_files = load_config(parent_dir)
+        if toml_found:
+            print_config_info(toml_found, user_ignore_dirs, user_ignore_files)
 
     console.print(f"[bold green]Analyzing '{target}'...[/bold green]{mode_label}")
 
@@ -456,7 +604,6 @@ def main(
 
             # CASO 2: Directory
             elif os.path.isdir(target):
-                config = load_config(target)
                 outfile.write(f"# Project Context: {os.path.basename(os.path.abspath(target))}\n\n")
                 if light_mode:
                     outfile.write(LIGHT_MODE_NOTICE + "\n")
