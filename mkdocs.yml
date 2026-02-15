@@ -36,4 +36,8 @@ plugins:
 
 nav:
   - Home: index.md
+  - Installazione: installation.md 
+  - Configurazione: configuration.md
+  - Esempi: examples.md
+  - Changelog: CHANGELOG.md
   - API Reference: reference.md
