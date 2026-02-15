@@ -7,8 +7,8 @@ from deepbase.main import main
 import sqlite3
 
 # --- SETUP PER I TEST ---
-test_app = typer.Typer()
-test_app.command()(main)
+app_test = typer.Typer()
+app_test.command()(main)
 
 runner = CliRunner()
 
@@ -80,7 +80,7 @@ Text that should be removed in light mode.
         self.create_dummy_project(tmp_path)
         output_file = tmp_path / "context.md"
         
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
@@ -105,7 +105,7 @@ Text that should be removed in light mode.
         self.create_dummy_project(tmp_path)
         output_file = tmp_path / "context.md"
         
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         content = output_file.read_text(encoding="utf-8")
         
         assert "# Project Title" in content
@@ -118,7 +118,7 @@ Text that should be removed in light mode.
         self.create_dummy_project(tmp_path)
         output_file = tmp_path / "context.md"
         
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         content = output_file.read_text(encoding="utf-8")
         
         assert r"\documentclass{article}" in content
@@ -133,7 +133,7 @@ Text that should be removed in light mode.
         self.create_dummy_project(tmp_path)
         output_file = tmp_path / "context.md"
         
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         content = output_file.read_text(encoding="utf-8")
         
         # 1. Verifica che il contenuto JS sia presente (Fallback behavior)
@@ -148,7 +148,7 @@ Text that should be removed in light mode.
         self.create_dummy_project(tmp_path)
         output_file = tmp_path / "context.md"
         
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         content = output_file.read_text(encoding="utf-8")
         
         # Verifica struttura JSON
@@ -168,7 +168,7 @@ Text that should be removed in light mode.
         conn.close()
 
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "--light", "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
@@ -183,7 +183,7 @@ Text that should be removed in light mode.
         
         # Focus su main.py. SENZA --light o --all, il comportamento standard
         # per i file NON in focus è di essere presenti SOLO nell'albero (tree).
-        result = runner.invoke(test_app, [str(tmp_path), "--focus", "main.py", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--focus", "main.py", "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
@@ -206,7 +206,7 @@ Text that should be removed in light mode.
         (tmp_path / ".deepbase.toml").write_text('ignore_files = ["script.js"]', encoding="utf-8")
         
         output_file = tmp_path / "context.md"
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         
         content = output_file.read_text(encoding="utf-8")
         assert "script.js" not in content
@@ -247,7 +247,7 @@ export default class ErrorBoundary extends React.Component {
 """, encoding="utf-8")
 
         output_file = tmp_path / "context.md"
-        result = runner.invoke(test_app, [str(tmp_path), "--light", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(tmp_path), "--light", "-o", str(output_file)])
         
         content = output_file.read_text(encoding="utf-8")
         
@@ -288,7 +288,7 @@ export default class ErrorBoundary extends React.Component {
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -319,7 +319,7 @@ export default class ErrorBoundary extends React.Component {
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -346,7 +346,7 @@ export default class ErrorBoundary extends React.Component {
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -380,7 +380,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -403,14 +403,14 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text("", encoding="utf-8")
         output_file = project_dir / "context.md"
         
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         assert result.exit_code == 0, f"Errore con TOML vuoto: {result.stdout}"
         
         # TOML malformato
         (project_dir / ".deepbase.toml").write_text("invalid toml content [[", encoding="utf-8")
         output_file2 = project_dir / "context2.md"
         
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file2)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file2)])
         # Dovrebbe gestire l'errore gracefulmente usando defaults
         assert result.exit_code == 0, f"Errore con TOML malformato: {result.stdout}"
         content = output_file2.read_text(encoding="utf-8")
@@ -438,7 +438,7 @@ significant_extensions = [".xyz"]
         (child_dir / "main.py").write_text("print('main')", encoding="utf-8")
         
         output_file = child_dir / "context.md"
-        result = runner.invoke(test_app, [str(child_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(child_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -471,7 +471,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -504,7 +504,7 @@ significant_extensions = [".xyz"]
         
         output_file = project_dir / "context.md"
         # Aggiungi --all per includere il contenuto dei file
-        result = runner.invoke(test_app, [str(project_dir), "--all", "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "--all", "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -535,7 +535,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -563,7 +563,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0, f"Errore: {result.stdout}"
         content = output_file.read_text(encoding="utf-8")
@@ -595,7 +595,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         assert result.exit_code == 0
         content = output_file.read_text(encoding="utf-8")
@@ -624,7 +624,7 @@ significant_extensions = [".xyz"]
         (project_dir / ".deepbase.toml").write_text(toml_content, encoding="utf-8")
         
         output_file = project_dir / "context.md"
-        result = runner.invoke(test_app, [str(project_dir), "-o", str(output_file)])
+        result = runner.invoke(app_test, [str(project_dir), "-o", str(output_file)])
         
         content = output_file.read_text(encoding="utf-8")
         
